@@ -54,7 +54,7 @@ test("StoreOpsClient stages and commits an import", async () => {
   const client = new StoreOpsClient({ useDoubles: true });
   const staged = await client.createImport({
     kind: "SALES",
-    media_id: "med-test-1",
+    media_id: "00000000-0000-0000-0000-000000000055",
   });
   assert.equal(staged.status, "VALIDATED");
   assert.equal(staged.committed_at, null);
