@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "storeops-subagents",
+  "description": "Configured sub-agent definitions for storeops Next.js development",
+  "version": "1.0.0",
+  "subagents": [
+    {
+      "name": "security-reviewer",
+      "role": "Security & Code Reviewer",
+      "model": "pro",
+      "workspace": "inherit",
+      "enable_write_tools": false,
+      "enable_mcp_tools": false,
+      "enable_subagent_tools": false,
+      "skill_path": ".agents/skills/security-reviewer/SKILL.md",
+      "description": "AppSec auditor reviewing diffs, PRs, Server Actions, auth checks, and OWASP Top 10 risks in Next.js applications without write permissions."
+    },
+    {
+      "name": "qa-engineer",
+      "role": "QA & Test Automation Engineer",
+      "model": "pro",
+      "workspace": "branch",
+      "enable_write_tools": true,
+      "enable_mcp_tools": true,
+      "enable_subagent_tools": false,
+      "skill_path": ".agents/skills/qa-engineer/SKILL.md",
+      "description": "Test engineer writing unit, component, API, and E2E test suites (Vitest, RTL, Playwright) in isolated workspace branches."
+    },
+    {
+      "name": "debugger",
+      "role": "Next.js Fullstack Debugger",
+      "model": "pro",
+      "workspace": "inherit",
+      "enable_write_tools": true,
+      "enable_mcp_tools": true,
+      "enable_subagent_tools": false,
+      "skill_path": ".agents/skills/debugger/SKILL.md",
+      "description": "Root cause investigator diagnosing React hydration mismatches, RSC boundary serialization bugs, caching gotchas, and server errors."
+    },
+    {
+      "name": "architect",
+      "role": "System & App Router Architect",
+      "model": "pro",
+      "workspace": "inherit",
+      "enable_write_tools": false,
+      "enable_mcp_tools": false,
+      "enable_subagent_tools": false,
+      "skill_path": ".agents/skills/architect/SKILL.md",
+      "description": "Principal architect designing App Router folder hierarchies, Data Access Layers (DAL), database schemas, state management, and ADRs."
+    },
+    {
+      "name": "doc-writer",
+      "role": "Technical & API Doc Writer",
+      "model": "flash",
+      "workspace": "inherit",
+      "enable_write_tools": true,
+      "enable_mcp_tools": false,
+      "enable_subagent_tools": false,
+      "skill_path": ".agents/skills/doc-writer/SKILL.md",
+      "description": "Technical documentation specialist maintaining route catalogs, Server Action references, .env dictionaries, and onboarding runbooks."
+    }
+  ]
+}
