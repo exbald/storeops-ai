@@ -1,8 +1,9 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from storeops_contracts import JobStatus
 from storeops_contracts.models import Job, JobEvent, Membership, Workspace
 
 from apps.api.ports.state import StateRepository, VersionConflictError
@@ -123,7 +124,7 @@ class InMemoryStateRepository(StateRepository):
     ) -> None:
         async with self._lock:
             self.jobs[job.id] = job
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             initial_event = JobEvent(
                 sequence=1,
                 job_id=job.id,
@@ -147,7 +148,7 @@ class InMemoryStateRepository(StateRepository):
         self, job_id: UUID, worker_id: str, lease_seconds: int = 60
     ) -> int | None:
         async with self._lock:
-            now = datetime.now(timezone.utc).timestamp()
+            now = datetime.now(UTC).timestamp()
             lease = self.job_leases.get(job_id)
             if lease is not None:
                 # If lease is active and held by someone else, cannot acquire
@@ -178,12 +179,13 @@ class InMemoryStateRepository(StateRepository):
             if not job:
                 raise ValueError(f"Job {job_id} not found")
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
+            status_enum = JobStatus(status) if isinstance(status, str) else status
             # Update job state
             job.stage = stage
-            job.status = status  # type: ignore
+            job.status = status_enum
             job.updated_at = now
-            if status in ["SUCCEEDED", "FAILED"]:
+            if status_enum in (JobStatus.SUCCEEDED, JobStatus.FAILED):
                 job.finished_at = now
 
             # Append event
@@ -196,7 +198,7 @@ class InMemoryStateRepository(StateRepository):
                     at=now,
                     stage=stage,
                     summary=summary,
-                    status=status,
+                    status=status_enum,
                 )
             )
 

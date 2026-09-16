@@ -1,6 +1,5 @@
-from uuid import uuid4
 import pytest
-from storeops_contracts.models import Me, Workspace
+from storeops_contracts.models import Me, Role, Workspace
 
 from apps.api.adapters.state.in_memory import InMemoryStateRepository
 from apps.api.core.auth import set_state_repository
@@ -50,7 +49,7 @@ async def test_ac01_bootstrap_empty_workspace_and_identity_preservation(api_clie
     assert me_data.uid == admin_uid
     assert len(me_data.memberships) == 1
     assert me_data.memberships[0].workspace_id == workspace.id
-    assert me_data.memberships[0].role == "ADMIN"
+    assert me_data.memberships[0].role == Role.ADMIN
 
     # Step 5: Read current workspace via GET /workspace
     resp_ws = await api_client.get(
