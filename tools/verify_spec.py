@@ -162,18 +162,38 @@ def main():
         pointer(read('contracts/'+name),'#'+fragment)
     links=0
     for file in ROOT.rglob('*.md'):
+        if any(part in file.parts for part in ['node_modules', '.venv', '.git', 'dist']):
+            continue
         for target in re.findall(r'\[[^\]]*\]\(([^)]+)\)',file.read_text()):
             if target.startswith(('https://','http://','#')):continue
             target=target.split('#',1)[0]
             require((file.parent/target).exists(),f'Broken local link: {file.relative_to(ROOT)} → {target}');links+=1
+    meta_status = 'required_in_T00_not_run_by_this_stdlib_check'
+    try:
+        from openapi_spec_validator import validate as validate_openapi
+        validate_openapi(api)
+        meta_status = 'passed'
+    except ImportError:
+        pass
+    except Exception as e:
+        meta_status = f'failed: {e}'
+        require(False, f'OpenAPI meta validation failed: {e}')
+
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--report')
+    parser.add_argument('--strict-meta', action='store_true', help='Fail if full OpenAPI meta validator is missing')
+    args=parser.parse_args()
+
+    if args.strict_meta:
+        require(meta_status == 'passed', f'Full OpenAPI meta validation failed or missing: {meta_status}')
+
     result={'status':'passed','kind':'specification_integrity_only','application_tests':'not_run',
-            'full_openapi_meta_validation':'required_in_T00_not_run_by_this_stdlib_check',
+            'full_openapi_meta_validation':meta_status,
             'requirements':len(reqs),'tasks':len(tasks),'acceptance_cases':len(cases),
             'api_operations':len(operations),'api_schemas':len(api['components']['schemas']),
             'ai_definitions':len(ai['$defs']),'schema_refs_checked':refs,'schema_examples_checked':example_count,
             'typed_tool_contracts':len(tools['tools']),'tool_schema_refs_checked':len(tool_refs),
             'local_links_checked':links,'waves':waves}
-    parser=argparse.ArgumentParser();parser.add_argument('--report');args=parser.parse_args()
     if args.report:
         p=Path(args.report);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result,indent=2))

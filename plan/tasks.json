@@ -10,7 +10,7 @@
     {
       "id": "T00",
       "title": "Freeze contracts and scaffold reproducible tooling",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [],
       "owner_role": "coordinator",

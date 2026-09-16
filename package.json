@@ -1,0 +1,13 @@
+{
+  "name": "storeops",
+  "private": true,
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "verify-spec": "make verify-spec",
+    "generate-contracts": "make generate-contracts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.6.1",
+    "typescript": "^5.7.3"
+  }
+}

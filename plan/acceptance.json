@@ -692,7 +692,7 @@
         "R14"
       ],
       "layer": "spec",
-      "status": "planned",
+      "status": "passed",
       "given": "Canonical schemas and an empty implementation scaffold",
       "when": "Pin dependencies, run full schema validators and generate types",
       "then": [

@@ -1,0 +1,33 @@
+[project]
+name = "storeops"
+version = "2.0.0"
+description = "StoreOps specification-driven MVP backend and worker"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.7.0",
+    "google-cloud-firestore>=2.15.0",
+    "duckdb>=0.10.0",
+    "google-genai>=0.1.1",
+    "httpx>=0.27.0",
+    "python-multipart>=0.0.9",
+    "pytz>=2024.1",
+    "datamodel-code-generator[http]>=0.25.0",
+    "openapi-spec-validator>=0.7.1",
+    "jsonschema>=4.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

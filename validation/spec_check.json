@@ -2,7 +2,7 @@
   "status": "passed",
   "kind": "specification_integrity_only",
   "application_tests": "not_run",
-  "full_openapi_meta_validation": "required_in_T00_not_run_by_this_stdlib_check",
+  "full_openapi_meta_validation": "passed",
   "requirements": 15,
   "tasks": 15,
   "acceptance_cases": 41,
