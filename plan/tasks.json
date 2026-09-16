@@ -273,7 +273,7 @@
     {
       "id": "T05",
       "title": "Web shell and management screens against frozen contracts",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T01"
