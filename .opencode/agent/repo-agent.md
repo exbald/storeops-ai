@@ -4,7 +4,7 @@ description: >-
   specialist (triage, review, qa, rfc, bugfix) fits, and delegates via the task tool.
   Use this as the entry agent for maintainer /oc and /opencode commands.
 mode: primary
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   task: true
   read: true

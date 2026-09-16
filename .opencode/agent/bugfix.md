@@ -4,7 +4,7 @@ description: >-
   open a PR. Has write/edit/bash (allowlisted to dev commands; no network). Use only
   for issues a maintainer has gated with the `agent-fix` label.
 mode: all
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   read: true
   grep: true

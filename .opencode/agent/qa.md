@@ -3,7 +3,7 @@ description: >-
   Answer questions about using this project strictly from repo files, always with file
   citations. Read-only. Use when an issue or comment asks how to use something.
 mode: subagent
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   read: true
   grep: true

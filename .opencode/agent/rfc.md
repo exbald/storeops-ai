@@ -4,7 +4,7 @@ description: >-
   root cause from real code tracing, proposed fix, alternatives, testing plan).
   Read-only. Use for high-severity bugs that need a design before a fix.
 mode: subagent
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   read: true
   grep: true

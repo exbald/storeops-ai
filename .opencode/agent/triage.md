@@ -4,7 +4,7 @@ description: >-
   issues; applies labels; asks for repro steps; redirects off-topic issues. Read-only
   on the codebase. Use for newly opened issues.
 mode: all
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   read: true
   grep: true

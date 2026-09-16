@@ -3,7 +3,7 @@ description: >-
   Scan open issues for staleness on a schedule, post a friendly warning, and apply a
   `stale` label. Read-only on code; uses gh to comment/label issues. No auto-close.
 mode: all
-model: model_api/muse-spark-1.1
+model: model_api/muse-spark-1.3-contributor
 tools:
   read: true
   grep: true
