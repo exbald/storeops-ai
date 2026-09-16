@@ -2,6 +2,16 @@
 
 Runs the StoreOps asynchronous worker loop while binding an HTTP listener
 on $PORT to satisfy Cloud Run Services lifecycle and health probe requirements.
+
+Security Architecture:
+This worker service is strictly private:
+- Ingress is restricted to internal traffic only (INGRESS_TRAFFIC_INTERNAL_ONLY).
+- Public access is denied (--no-allow-unauthenticated).
+- Only authorized callers (Cloud Tasks / Cloud Scheduler via storeops-invoker-sa)
+  possessing roles/run.invoker can reach this service via Google IAM OIDC tokens.
+- Perimeter authentication and network isolation are enforced at the Google Cloud Run
+  infrastructure layer; this container-internal HTTP shim provides port binding and health
+  probes without redundant in-container token verification.
 """
 
 import asyncio
@@ -18,7 +28,7 @@ logger = logging.getLogger("storeops.cloud_worker")
 
 
 async def _handle_http_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    """Minimal ASGI/HTTP request handler for Cloud Run health checks."""
+    """Minimal HTTP request handler for Cloud Run container lifecycle health checks."""
     try:
         request_line = await reader.readline()
         if not request_line:

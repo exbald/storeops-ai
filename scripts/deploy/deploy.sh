@@ -130,27 +130,33 @@ if ! gcloud storage buckets describe "gs://${MEDIA_BUCKET}" --project="${PROJECT
         --uniform-bucket-level-access
 fi
 
-# 7. BigQuery Dataset & Tables Setup
+# 7. BigQuery Dataset & Tables Setup (applies canonical migration DDL)
 echo -e "\n${BLUE}Step 4: Creating BigQuery analytics dataset...${NC}"
 if ! bq show --project_id="${PROJECT_ID}" "${BQ_DATASET}" &>/dev/null; then
     bq --location="${REGION}" mk --dataset "${PROJECT_ID}:${BQ_DATASET}"
 fi
 
-if [ -f "${ROOT_DIR}/infra/bigquery_schema.sql" ]; then
-    echo "Applying BigQuery schema DDL..."
+BQ_DDL_FILE="${ROOT_DIR}/migrations/bigquery/001_initial_analytics.sql"
+if [ ! -f "${BQ_DDL_FILE}" ]; then
+    BQ_DDL_FILE="${ROOT_DIR}/infra/bigquery_schema.sql"
+fi
+
+if [ -f "${BQ_DDL_FILE}" ]; then
+    echo "Applying BigQuery schema DDL from ${BQ_DDL_FILE}..."
     bq query --use_legacy_sql=false \
         --dataset_id="${BQ_DATASET}" \
-        --project_id="${PROJECT_ID}" \
-        "$(cat "${ROOT_DIR}/infra/bigquery_schema.sql")"
+        --project_id="${PROJECT_ID}" < "${BQ_DDL_FILE}"
 fi
 
 # 8. Firestore Database and Indexes
 echo -e "\n${BLUE}Step 5: Verifying Firestore and applying indexes...${NC}"
 if [ -f "${ROOT_DIR}/infra/firestore.indexes.json" ]; then
     echo "Deploying Firestore composite indexes..."
-    gcloud firestore indexes composite create \
-        --project="${PROJECT_ID}" \
-        --config-file="${ROOT_DIR}/infra/firestore.indexes.json"
+    if command -v firebase &>/dev/null; then
+        firebase deploy --only firestore:indexes --project="${PROJECT_ID}"
+    else
+        echo "Notice: firebase CLI not found in PATH. To apply composite indexes, run: firebase deploy --only firestore:indexes --project=${PROJECT_ID}"
+    fi
 fi
 
 # 9. Cloud Tasks Queue

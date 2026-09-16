@@ -111,15 +111,15 @@ terraform apply
 ```
 
 ### Idempotent Deployment Steps Performed:
-1. Enables required APIs (`run`, `cloudtasks`, `cloudscheduler`, `firestore`, `bigquery`, `storage`, `aiplatform`).
+1. Enables required APIs (`run`, `cloudtasks`, `cloudscheduler`, `firestore`, `bigquery`, `storage`, `aiplatform`, `artifactregistry`).
 2. Creates the 3 least-privilege service accounts and binds IAM roles.
 3. Provisions the private media storage bucket with uniform bucket-level access.
-4. Creates BigQuery dataset and executes `infra/bigquery_schema.sql` (partitioning & clustering).
-5. Deploys Firestore composite indexes from `infra/firestore.indexes.json`.
+4. Creates BigQuery dataset in Terraform and executes canonical DDL from `migrations/bigquery/001_initial_analytics.sql` (mirrored in `infra/bigquery_schema.sql`) to avoid Terraform table schema drift.
+5. Deploys Firestore composite indexes from `infra/firestore.indexes.json` using `firebase deploy --only firestore:indexes --project=${PROJECT_ID}`.
 6. Configures Cloud Tasks queue `storeops-work-queue`.
-7. Deploys Private Worker Cloud Run service (`--no-allow-unauthenticated`, executing `python3 -m scripts.deploy.run_worker` binding port 8001 to satisfy Cloud Run Services lifecycle requirements and executing outbox loop).
+7. Deploys Private Worker Cloud Run service (`--no-allow-unauthenticated`, executing `python3 -m scripts.deploy.run_worker` on port 8001). Security is enforced by Cloud Run internal ingress and Google IAM; no in-container auth token parsing is needed.
 8. Deploys Public API Cloud Run service.
-9. Sets up Cloud Scheduler outbox drain job on `* * * * *` (pings `/health` heartbeat).
+9. Sets up Cloud Scheduler outbox drain job on `* * * * *` (pings `/health` heartbeat pending foundation `/outbox/drain` route integration).
 
 ---
 
@@ -138,10 +138,13 @@ python3 scripts/deploy/smoke_check.py
 ```
 
 ### Verification Criteria (AC-41):
-- `GET /health` returns HTTP 200 with `status: "READY"` (or `"DEGRADED"`) conforming to `contracts/openapi.json`.
-- Unauthenticated requests to protected API endpoints return HTTP 401.
-- Direct public requests to the Worker service return HTTP 401 or 403 (enforcing private internal ingress).
-- Zero sample business records exist in the database (bootstrap is clean).
+- **Scaffold & Config Verification**: All infrastructure specifications, composite index definitions, versioned DDL, worker IAM policies, and Terraform modules are syntactically valid and verified.
+- **Fail-Closed Verification**: `smoke_check.py` requires live URLs and credentials; without them, it exits 2 `[BLOCKED]` per fail-closed conventions.
+- **Health Endpoint**: `GET /health` returns HTTP 200 with `status: "READY"` (or `"DEGRADED"`) conforming to `contracts/openapi.json`.
+- **API Authentication**: Unauthenticated requests to protected API endpoints return HTTP 401.
+- **Worker Isolation**: Direct public requests to the Worker service return HTTP 401, 403, or connection drop (enforcing private internal ingress and IAM perimeter isolation).
+- **Clean Bootstrap**: Zero sample business records exist in the database (bootstrap is clean).
+- **Live Dispatch Scope Note**: AC-41 verifies deployment repeatability, infrastructure definitions, and local job runner execution. Full end-to-end cloud dispatch with live Cloud Tasks and Cloud Run execution is validated in Task T12 (AC-29) once cloud infrastructure is provisioned.
 
 ---
 
