@@ -1,0 +1,92 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "memberships",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "workspace_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "stores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "code", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "sku", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "locations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "code", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "imports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "promotions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "policy_versions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "promotion_id", "order": "ASCENDING" },
+        { "fieldPath": "version", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "outbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "lease_expires_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "idempotency_keys",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "key", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

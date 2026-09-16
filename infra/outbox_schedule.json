@@ -1,0 +1,24 @@
+{
+  "name": "storeops-outbox-drain",
+  "description": "Scheduled outbox repair and job dispatch invocation (once per minute)",
+  "schedule": "* * * * *",
+  "timeZone": "Etc/UTC",
+  "httpTarget": {
+    "httpMethod": "POST",
+    "uri": "https://${API_URL}/outbox/drain",
+    "headers": {
+      "Content-Type": "application/json",
+      "User-Agent": "StoreOps-CloudScheduler/1.0"
+    },
+    "oidcToken": {
+      "serviceAccountEmail": "storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com",
+      "audience": "https://${API_URL}"
+    }
+  },
+  "retryConfig": {
+    "retryCount": 2,
+    "maxRetryDuration": "60s",
+    "minBackoffDuration": "5s",
+    "maxBackoffDuration": "20s"
+  }
+}
