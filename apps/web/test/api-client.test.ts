@@ -53,7 +53,7 @@ test("StoreOpsClient detects version conflict on concurrent update", async () =>
 test("StoreOpsClient stages and commits an import", async () => {
   const client = new StoreOpsClient({ useDoubles: true });
   const staged = await client.createImport({
-    kind: "SALES_DAILY",
+    kind: "SALES",
     media_id: "med-test-1",
   });
   assert.equal(staged.status, "VALIDATED");

@@ -18,6 +18,8 @@ def mock_api_double_evidence():
             "region": "Central",
             "timezone": "Asia/Singapore",
             "distributor_location_id": None,
+            "currency": "SGD",
+            "backroom_location_id": "66666666-6666-6666-6666-666666666666",
             "active": True,
             "version": 1,
             "created_at": "2026-09-16T12:00:00Z",
@@ -38,17 +40,17 @@ def mock_api_double_evidence():
         "import_record": {
             "id": "44444444-4444-4444-4444-444444444444",
             "workspace_id": "11111111-1111-1111-1111-111111111111",
-            "kind": "SALES_DAILY",
+            "kind": "SALES",
             "media_id": "55555555-5555-5555-5555-555555555555",
-            "status": "STAGED",
+            "status": "VALIDATED",
             "row_count": 150,
             "error_count": 1,
             "errors": [
                 {
-                    "row_number": 42,
+                    "row": 42,
+                    "field": "sku",
                     "code": "UNKNOWN_SKU",
                     "message": "SKU UNKNOWN-999 is not in catalog",
-                    "raw_line": "2026-09-15,STR-001,UNKNOWN-999,10,15.00,SGD",
                 }
             ],
             "batch_id": None,

@@ -21,6 +21,7 @@ import type {
   Location,
   LocationCreate,
   Import,
+  ImportCreate,
   Promotion,
   PromotionCreate,
   PolicyVersion,
@@ -213,6 +214,7 @@ export class StoreOpsClient {
 
   async createStore(data: StoreCreate): Promise<Store> {
     if (this.useDoubles) {
+      const backroomId = generateUuid();
       const newStore: Store = {
         id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
@@ -223,11 +225,26 @@ export class StoreOpsClient {
         format: data.format,
         timezone: data.timezone,
         distributor_location_id: data.distributor_location_id || null,
+        currency: "SGD",
+        backroom_location_id: backroomId,
         active: true,
         version: 1,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+      const newBackroom: Location = {
+        id: backroomId,
+        workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
+        version: 1,
+        created_at: newStore.created_at,
+        updated_at: newStore.updated_at,
+        code: `BR-${data.code}`,
+        name: `${data.name} Backroom`,
+        type: "BACKROOM",
+        store_id: newStore.id,
+        active: true,
+      };
+      this.doubleLocations.unshift(newBackroom);
       this.doubleStores.unshift(newStore);
       return newStore;
     }
@@ -258,6 +275,8 @@ export class StoreOpsClient {
           data.distributor_location_id !== undefined
             ? data.distributor_location_id
             : current.distributor_location_id,
+        currency: current.currency,
+        backroom_location_id: current.backroom_location_id,
         active: data.active !== undefined ? data.active : current.active,
         version: current.version + 1,
         created_at: current.created_at,
@@ -283,7 +302,8 @@ export class StoreOpsClient {
     }
     const query = new URLSearchParams();
     if (params?.active !== undefined) query.set("active", String(params.active));
-    return this.fetch<{ items: Product[]; next_cursor: string | null }>(`/products?${query.toString()}`);
+    const qs = query.toString();
+    return this.fetch<{ items: Product[]; next_cursor: string | null }>(`/products${qs ? `?${qs}` : ""}`);
   }
 
   async createProduct(data: ProductCreate): Promise<Product> {
@@ -347,12 +367,14 @@ export class StoreOpsClient {
       const newLoc: Location = {
         id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
-        code: data.code,
-        name: data.name,
-        timezone: data.timezone,
         version: 1,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        code: data.code,
+        name: data.name,
+        type: data.type || "DISTRIBUTOR",
+        store_id: null,
+        active: true,
       };
       this.doubleLocations.unshift(newLoc);
       return newLoc;
@@ -371,11 +393,14 @@ export class StoreOpsClient {
     return this.fetch<{ items: Import[]; next_cursor: string | null }>("/imports");
   }
 
-  async createImport(data: { kind: "SALES_DAILY" | "INVENTORY_SNAPSHOT"; media_id: string }): Promise<Import> {
+  async createImport(data: ImportCreate): Promise<Import> {
     if (this.useDoubles) {
       const newImport: Import = {
         id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         kind: data.kind,
         media_id: data.media_id,
         status: "VALIDATED",
@@ -384,10 +409,7 @@ export class StoreOpsClient {
         errors: [],
         batch_id: null,
         committed_at: null,
-        source_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        source_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       };
       this.doubleImports.unshift(newImport);
       return newImport;
@@ -432,16 +454,19 @@ export class StoreOpsClient {
       const newPromo: Promotion = {
         id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
         name: data.name,
         starts_on: data.starts_on,
         ends_on: data.ends_on,
         store_ids: data.store_ids,
         agreement_media_id: data.agreement_media_id,
-        active_version_id: null,
         archived: false,
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        draft_revision: 1,
+        extracted_rules: [],
+        extraction_gaps: [],
+        approved_policy: null,
       };
       this.doublePromotions.unshift(newPromo);
       return newPromo;
@@ -462,21 +487,21 @@ export class StoreOpsClient {
 
       const newVersion: PolicyVersion = {
         id: generateUuid(),
-        workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         promotion_id: promotionId,
-        version_number: (this.doublePolicyVersions.filter((v) => v.promotion_id === promotionId).length || 0) + 1,
-        status: "APPROVED",
-        approved_by: "00000000-0000-0000-0000-000000000009",
-        approved_at: new Date().toISOString(),
+        version: promo.approved_policy ? promo.approved_policy.version + 1 : 1,
         rules: data.rules,
         catalog_product_ids: data.catalog_product_ids,
-        version: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        store_ids: promo.store_ids,
+        starts_on: promo.starts_on,
+        ends_on: promo.ends_on,
+        approved_at: new Date().toISOString(),
+        approved_by: "00000000-0000-0000-0000-000000000009",
+        content_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       };
       this.doublePolicyVersions.unshift(newVersion);
-      promo.active_version_id = newVersion.id;
+      promo.approved_policy = newVersion;
       promo.version += 1;
+      promo.updated_at = new Date().toISOString();
       return newVersion;
     }
     // Fixed path per contracts/openapi.json: POST /promotions/{promotion_id}/approve

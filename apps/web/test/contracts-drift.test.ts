@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { StoreOpsClient, VersionConflictError, ApiRequestError } from "../src/lib/api-client.ts";
-import { generateUuid } from "../src/lib/doubles.ts";
+import {
+  generateUuid,
+  MOCK_WORKSPACE,
+  MOCK_LOCATIONS,
+  MOCK_STORES,
+  MOCK_PRODUCTS,
+  MOCK_IMPORTS,
+  MOCK_POLICY_VERSIONS,
+  MOCK_PROMOTIONS,
+  MOCK_MEMBERSHIPS,
+} from "../src/lib/doubles.ts";
 
 const possiblePaths = [
   path.resolve(process.cwd(), "contracts/openapi.json"),
@@ -104,7 +114,7 @@ test("StoreOpsClient methods use valid RFC 4122 UUIDs for all identifiers", asyn
   assert.match(promo.id, RFC4122_UUID_REGEX, "Promotion ID must be RFC 4122 UUID");
 
   const imp = await client.createImport({
-    kind: "SALES_DAILY",
+    kind: "SALES",
     media_id: generateUuid(),
   });
   assert.match(imp.id, RFC4122_UUID_REGEX, "Import ID must be RFC 4122 UUID");
@@ -112,7 +122,7 @@ test("StoreOpsClient methods use valid RFC 4122 UUIDs for all identifiers", asyn
   const loc = await client.createLocation({
     code: "WH-UUID",
     name: "Warehouse UUID",
-    timezone: "Asia/Singapore",
+    type: "DISTRIBUTOR",
   });
   assert.match(loc.id, RFC4122_UUID_REGEX, "Location ID must be RFC 4122 UUID");
 });
@@ -179,7 +189,8 @@ test("StoreOpsClient approvePolicy and listPolicyVersions adhere to contracts", 
   assert.ok(approved.id !== null);
   assert.match(approved.id, RFC4122_UUID_REGEX);
   assert.equal(approved.promotion_id, target.id);
-  assert.equal(approved.status, "APPROVED");
+  assert.ok(approved.version >= 1);
+  assert.match(approved.content_sha256, /^[0-9a-f]{64}$/);
 
   const versions = await client.listPolicyVersions(target.id);
   assert.ok(versions.items.length >= 1);
@@ -356,4 +367,74 @@ test("StoreOpsClient updateStore double does not leak expected_version onto Stor
 
   assert.equal(updated.name, "Updated Name Clean");
   assert.equal("expected_version" in updated, false, "Store entity must not have expected_version field");
+});
+
+test("All mock doubles in doubles.ts conform strictly to OpenAPI schemas (no extra or missing fields)", () => {
+  const schemas = openapi.components.schemas;
+
+  function validateObject(obj: Record<string, unknown>, schemaName: string) {
+    const schema = schemas[schemaName];
+    assert.ok(schema, `Schema ${schemaName} exists in openapi.json`);
+
+    // Check required fields
+    for (const req of schema.required || []) {
+      assert.ok(req in obj, `${schemaName} must have required property '${req}'`);
+      assert.notEqual(obj[req], undefined, `${schemaName}.${req} must not be undefined`);
+    }
+
+    // Check additionalProperties: false
+    if (schema.additionalProperties === false) {
+      const allowed = new Set(Object.keys(schema.properties || {}));
+      for (const key of Object.keys(obj)) {
+        assert.ok(
+          allowed.has(key),
+          `${schemaName} has disallowed extra property '${key}'. Allowed: ${[...allowed].join(", ")}`
+        );
+      }
+    }
+  }
+
+  // 1. Workspace
+  validateObject(MOCK_WORKSPACE as unknown as Record<string, unknown>, "Workspace");
+
+  // 2. Locations
+  for (const loc of MOCK_LOCATIONS) {
+    validateObject(loc as unknown as Record<string, unknown>, "Location");
+  }
+
+  // 3. Stores
+  for (const store of MOCK_STORES) {
+    validateObject(store as unknown as Record<string, unknown>, "Store");
+  }
+
+  // 4. Products
+  for (const prod of MOCK_PRODUCTS) {
+    validateObject(prod as unknown as Record<string, unknown>, "Product");
+  }
+
+  // 5. Imports
+  for (const imp of MOCK_IMPORTS) {
+    validateObject(imp as unknown as Record<string, unknown>, "Import");
+    for (const err of imp.errors) {
+      validateObject(err as unknown as Record<string, unknown>, "ImportError");
+    }
+  }
+
+  // 6. Policy Versions
+  for (const pv of MOCK_POLICY_VERSIONS) {
+    validateObject(pv as unknown as Record<string, unknown>, "PolicyVersion");
+  }
+
+  // 7. Promotions
+  for (const promo of MOCK_PROMOTIONS) {
+    validateObject(promo as unknown as Record<string, unknown>, "Promotion");
+    if (promo.approved_policy) {
+      validateObject(promo.approved_policy as unknown as Record<string, unknown>, "PolicyVersion");
+    }
+  }
+
+  // 8. Memberships
+  for (const mem of MOCK_MEMBERSHIPS) {
+    validateObject(mem as unknown as Record<string, unknown>, "Membership");
+  }
 });

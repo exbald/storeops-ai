@@ -9,6 +9,7 @@
  * replaces these doubles during Wave 4 (Task T08).
  *
  * All identifiers adhere strictly to RFC 4122 format: uuid.
+ * All shapes conform strictly to contracts/openapi.json schemas.
  */
 
 import type {
@@ -39,33 +40,63 @@ export function generateUuid(): string {
 export const MOCK_MEMBERSHIPS: Membership[] = [
   {
     workspace_id: DEFAULT_WORKSPACE_ID,
-    role: "ADMIN",
     workspace_name: "Apex Retail Singapore",
+    role: "ADMIN",
   },
   {
     workspace_id: SECONDARY_WORKSPACE_ID,
-    role: "REP",
     workspace_name: "Secondary Store Network",
+    role: "REP",
   },
 ];
 
 export const MOCK_WORKSPACE: Workspace = {
   id: DEFAULT_WORKSPACE_ID,
-  name: "Apex Retail Singapore",
+  workspace_id: DEFAULT_WORKSPACE_ID,
+  version: 1,
   created_at: "2026-09-01T00:00:00Z",
   updated_at: "2026-09-01T00:00:00Z",
+  name: "Apex Retail Singapore",
+  brand_name: "Apex Retail",
+  currency: "SGD",
 };
 
 export const MOCK_LOCATIONS: Location[] = [
   {
     id: "00000000-0000-0000-0000-000000000010",
     workspace_id: DEFAULT_WORKSPACE_ID,
-    code: "DIST-WEST",
-    name: "Tuas Distribution Hub",
-    timezone: "Asia/Singapore",
     version: 1,
     created_at: "2026-09-01T00:00:00Z",
     updated_at: "2026-09-01T00:00:00Z",
+    code: "DIST-WEST",
+    name: "Tuas Distribution Hub",
+    type: "DISTRIBUTOR",
+    store_id: null,
+    active: true,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000011",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-01T08:00:00Z",
+    updated_at: "2026-09-01T08:00:00Z",
+    code: "BR-STR001",
+    name: "Downtown Central Backroom",
+    type: "BACKROOM",
+    store_id: "00000000-0000-0000-0000-000000000021",
+    active: true,
+  },
+  {
+    id: "00000000-0000-0000-0000-000000000012",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-02T09:00:00Z",
+    updated_at: "2026-09-02T09:00:00Z",
+    code: "BR-STR002",
+    name: "Bedok Mall Backroom",
+    type: "BACKROOM",
+    store_id: "00000000-0000-0000-0000-000000000022",
+    active: true,
   },
 ];
 
@@ -73,6 +104,9 @@ export const MOCK_STORES: Store[] = [
   {
     id: "00000000-0000-0000-0000-000000000021",
     workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-01T08:00:00Z",
+    updated_at: "2026-09-01T08:00:00Z",
     code: "STR-001",
     name: "Downtown Central Hypermarket",
     retailer: "FairPrice",
@@ -80,14 +114,16 @@ export const MOCK_STORES: Store[] = [
     format: "HYPERMARKET",
     timezone: "Asia/Singapore",
     distributor_location_id: "00000000-0000-0000-0000-000000000010",
+    currency: "SGD",
+    backroom_location_id: "00000000-0000-0000-0000-000000000011",
     active: true,
-    version: 1,
-    created_at: "2026-09-01T08:00:00Z",
-    updated_at: "2026-09-01T08:00:00Z",
   },
   {
     id: "00000000-0000-0000-0000-000000000022",
     workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-02T09:00:00Z",
+    updated_at: "2026-09-02T09:00:00Z",
     code: "STR-002",
     name: "Bedok Mall Express",
     retailer: "ColdStorage",
@@ -95,10 +131,9 @@ export const MOCK_STORES: Store[] = [
     format: "CONVENIENCE",
     timezone: "Asia/Singapore",
     distributor_location_id: null,
+    currency: "SGD",
+    backroom_location_id: "00000000-0000-0000-0000-000000000012",
     active: true,
-    version: 1,
-    created_at: "2026-09-02T09:00:00Z",
-    updated_at: "2026-09-02T09:00:00Z",
   },
 ];
 
@@ -106,26 +141,26 @@ export const MOCK_PRODUCTS: Product[] = [
   {
     id: "00000000-0000-0000-0000-000000000031",
     workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-01T08:00:00Z",
+    updated_at: "2026-09-01T08:00:00Z",
     sku: "BEV-COKE-500",
     name: "Coca-Cola Original 500ml",
     case_units: 24,
     reference_media_ids: [],
     active: true,
-    version: 1,
-    created_at: "2026-09-01T08:00:00Z",
-    updated_at: "2026-09-01T08:00:00Z",
   },
   {
     id: "00000000-0000-0000-0000-000000000032",
     workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-01T08:00:00Z",
+    updated_at: "2026-09-01T08:00:00Z",
     sku: "BEV-SPRITE-330",
     name: "Sprite Lemon-Lime 330ml Can",
     case_units: 24,
     reference_media_ids: [],
     active: true,
-    version: 1,
-    created_at: "2026-09-01T08:00:00Z",
-    updated_at: "2026-09-01T08:00:00Z",
   },
 ];
 
@@ -133,7 +168,10 @@ export const MOCK_IMPORTS: Import[] = [
   {
     id: "00000000-0000-0000-0000-000000000041",
     workspace_id: DEFAULT_WORKSPACE_ID,
-    kind: "SALES_DAILY",
+    version: 2,
+    created_at: "2026-09-10T11:55:00Z",
+    updated_at: "2026-09-10T12:00:00Z",
+    kind: "SALES",
     media_id: "00000000-0000-0000-0000-000000000042",
     status: "COMMITTED",
     row_count: 500,
@@ -142,9 +180,6 @@ export const MOCK_IMPORTS: Import[] = [
     batch_id: "00000000-0000-0000-0000-000000000043",
     committed_at: "2026-09-10T12:00:00Z",
     source_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    version: 2,
-    created_at: "2026-09-10T11:55:00Z",
-    updated_at: "2026-09-10T12:00:00Z",
   },
 ];
 
@@ -181,39 +216,41 @@ export const MOCK_RULES: Rule[] = [
   },
 ];
 
-export const MOCK_PROMOTIONS: Promotion[] = [
-  {
-    id: "00000000-0000-0000-0000-000000000061",
-    workspace_id: DEFAULT_WORKSPACE_ID,
-    name: "Q3 Beverage Endcap Feature",
-    starts_on: "2026-09-01",
-    ends_on: "2026-09-30",
-    store_ids: ["00000000-0000-0000-0000-000000000021"],
-    agreement_media_id: "00000000-0000-0000-0000-000000000099",
-    active_version_id: "00000000-0000-0000-0000-000000000071",
-    archived: false,
-    version: 1,
-    created_at: "2026-08-25T10:00:00Z",
-    updated_at: "2026-08-25T10:00:00Z",
-  },
-];
-
 export const MOCK_POLICY_VERSIONS: PolicyVersion[] = [
   {
     id: "00000000-0000-0000-0000-000000000071",
-    workspace_id: DEFAULT_WORKSPACE_ID,
     promotion_id: "00000000-0000-0000-0000-000000000061",
-    version_number: 1,
-    status: "APPROVED",
-    approved_by: "00000000-0000-0000-0000-000000000009",
-    approved_at: "2026-08-26T14:30:00Z",
+    version: 1,
     rules: MOCK_RULES,
     catalog_product_ids: [
       "00000000-0000-0000-0000-000000000031",
       "00000000-0000-0000-0000-000000000032",
     ],
+    store_ids: ["00000000-0000-0000-0000-000000000021"],
+    starts_on: "2026-09-01",
+    ends_on: "2026-09-30",
+    approved_at: "2026-08-26T14:30:00Z",
+    approved_by: "00000000-0000-0000-0000-000000000009",
+    content_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  },
+];
+
+export const MOCK_PROMOTIONS: Promotion[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000061",
+    workspace_id: DEFAULT_WORKSPACE_ID,
     version: 1,
-    created_at: "2026-08-26T14:30:00Z",
-    updated_at: "2026-08-26T14:30:00Z",
+    created_at: "2026-08-25T10:00:00Z",
+    updated_at: "2026-08-25T10:00:00Z",
+    name: "Q3 Beverage Endcap Feature",
+    starts_on: "2026-09-01",
+    ends_on: "2026-09-30",
+    store_ids: ["00000000-0000-0000-0000-000000000021"],
+    agreement_media_id: "00000000-0000-0000-0000-000000000099",
+    archived: false,
+    draft_revision: 1,
+    extracted_rules: MOCK_RULES,
+    extraction_gaps: [],
+    approved_policy: MOCK_POLICY_VERSIONS[0],
   },
 ];

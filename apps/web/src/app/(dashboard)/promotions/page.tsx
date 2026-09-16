@@ -185,10 +185,10 @@ export default function PromotionsPage() {
       header: "Policy Status",
       render: (p) => (
         <Badge
-          variant={p.active_version_id ? "success" : "warning"}
+          variant={p.approved_policy ? "success" : "warning"}
           labelPrefix="Policy Status:"
         >
-          {p.active_version_id ? "Policy Approved" : "Draft / Needs Approval"}
+          {p.approved_policy ? "Policy Approved" : "Draft / Needs Approval"}
         </Badge>
       ),
     },
@@ -204,8 +204,8 @@ export default function PromotionsPage() {
       render: (p) => (
         <div className="flex items-center justify-end gap-2">
           {isAdmin && (
-            <Button size="sm" variant={p.active_version_id ? "outline" : "primary"} onClick={() => openReviewModal(p)}>
-              {p.active_version_id ? "View Policy" : "Review & Approve"}
+            <Button size="sm" variant={p.approved_policy ? "outline" : "primary"} onClick={() => openReviewModal(p)}>
+              {p.approved_policy ? "View Policy" : "Review & Approve"}
             </Button>
           )}
         </div>
@@ -397,7 +397,7 @@ export default function PromotionsPage() {
               >
                 Close
               </Button>
-              {isAdmin && !activeReviewPromo.active_version_id && (
+              {isAdmin && !activeReviewPromo.approved_policy && (
                 <Button
                   onClick={handleApprovePolicy}
                   isLoading={isApproving}

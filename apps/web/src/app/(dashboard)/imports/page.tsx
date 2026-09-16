@@ -20,7 +20,7 @@ export default function ImportsPage() {
 
   // Staged Upload Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [importKind, setImportKind] = useState<"SALES_DAILY" | "INVENTORY_SNAPSHOT">("SALES_DAILY");
+  const [importKind, setImportKind] = useState<"SALES" | "INVENTORY">("SALES");
   const [fileName, setFileName] = useState("");
   const [csvContent, setCsvContent] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -115,7 +115,7 @@ export default function ImportsPage() {
       header: "Import Type",
       render: (i) => (
         <span className="font-semibold text-xs text-gray-900 uppercase">
-          {i.kind === "SALES_DAILY" ? "Daily Sales CSV" : "Inventory Snapshot CSV"}
+          {i.kind === "SALES" ? "Daily Sales CSV" : "Inventory Snapshot CSV"}
         </span>
       ),
     },
@@ -243,10 +243,10 @@ export default function ImportsPage() {
           <Select
             label="Import Feed Type"
             value={importKind}
-            onChange={(e) => setImportKind(e.target.value as "SALES_DAILY" | "INVENTORY_SNAPSHOT")}
+            onChange={(e) => setImportKind(e.target.value as "SALES" | "INVENTORY")}
             options={[
-              { value: "SALES_DAILY", label: "Daily Store Sales (store_code, sku, date, units, revenue)" },
-              { value: "INVENTORY_SNAPSHOT", label: "Inventory Snapshot (location_code, sku, date, on_hand)" },
+              { value: "SALES", label: "Daily Store Sales (store_code, sku, date, units, revenue)" },
+              { value: "INVENTORY", label: "Inventory Snapshot (location_code, sku, date, on_hand)" },
             ]}
           />
 

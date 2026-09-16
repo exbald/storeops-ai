@@ -18,7 +18,7 @@ interface ChecklistItem {
 }
 
 export default function SetupPage() {
-  const { isAdmin, activeWorkspaceName } = useAuth();
+  const { activeWorkspaceName } = useAuth();
   const [loading, setLoading] = useState(true);
   const [storeCount, setStoreCount] = useState<number>(0);
   const [productCount, setProductCount] = useState<number>(0);
@@ -39,7 +39,7 @@ export default function SetupPage() {
         setProductCount(productsRes.items.length);
         const committedImports = importsRes.items.filter((i) => i.status === "COMMITTED");
         setImportCount(committedImports.length);
-        const approvedPromos = promosRes.items.filter((p) => p.active_version_id !== null);
+        const approvedPromos = promosRes.items.filter((p) => p.approved_policy !== null);
         setPolicyCount(approvedPromos.length);
       } catch (err) {
         console.error("Failed to load workspace setup counts:", err);

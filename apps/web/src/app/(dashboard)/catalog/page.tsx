@@ -33,7 +33,6 @@ export default function CatalogPage() {
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [locationCode, setLocationCode] = useState("");
   const [locationName, setLocationName] = useState("");
-  const [locationTimezone, setLocationTimezone] = useState("Asia/Singapore");
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
 
@@ -121,7 +120,7 @@ export default function CatalogPage() {
     setGlobalAlert(null);
     // Archive safeguard: Check if product is in an active promotion
     const isReferencedInActivePolicy = promotions.some(
-      (promo) => !promo.archived && promo.active_version_id !== null
+      (promo) => !promo.archived && promo.approved_policy !== null
     );
 
     if (isReferencedInActivePolicy && product.active) {
@@ -165,7 +164,7 @@ export default function CatalogPage() {
       await apiClient.createLocation({
         code: locationCode,
         name: locationName,
-        timezone: locationTimezone,
+        type: "DISTRIBUTOR",
       });
       setIsLocationModalOpen(false);
       await loadData();
@@ -252,12 +251,26 @@ export default function CatalogPage() {
     },
     {
       key: "name",
-      header: "Warehouse Name",
+      header: "Location Name",
       render: (l) => <span className="font-medium text-gray-900">{l.name}</span>,
     },
     {
-      key: "timezone",
-      header: "Timezone",
+      key: "type",
+      header: "Location Type",
+      render: (l) => (
+        <Badge variant={l.type === "DISTRIBUTOR" ? "info" : "default"}>
+          {l.type}
+        </Badge>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (l) => (
+        <Badge variant={l.active ? "success" : "default"}>
+          {l.active ? "Active" : "Inactive"}
+        </Badge>
+      ),
     },
   ];
 
@@ -459,12 +472,14 @@ export default function CatalogPage() {
             placeholder="e.g. Tuas Logistics Park Hub"
           />
 
-          <Input
-            label="Timezone"
-            required
-            value={locationTimezone}
-            onChange={(e) => setLocationTimezone(e.target.value)}
-          />
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Location Type
+            </label>
+            <div className="text-sm font-semibold text-gray-800 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+              DISTRIBUTOR (External Warehouse / Supply Depot)
+            </div>
+          </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
             <Button
