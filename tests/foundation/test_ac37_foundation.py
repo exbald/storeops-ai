@@ -1,9 +1,10 @@
 import hashlib
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
-from storeops_contracts import Job, JobStatus, JobType, Status
+from storeops_contracts import Job, JobStatus, JobType
+from storeops_contracts.models import Error, ResourceType
 
 from apps.api.jobs.runner import JobRunner
 from apps.api.ports.state import VersionConflictError
@@ -55,7 +56,7 @@ async def test_ac37_blob_primitives(blob_repo):
 
     # 2. Download URL generation
     url = await blob_repo.get_download_url(media_id, expires_in_seconds=300)
-    assert f"expires=300" in url
+    assert "expires=300" in url
 
     # 3. Oversized asset rejection (> 5MB for image)
     oversized_media_id = uuid4()
@@ -68,7 +69,7 @@ async def test_ac37_blob_primitives(blob_repo):
 async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace):
     """AC37.3: Outbox enqueue, lease fencing tokens, and duplicate delivery protection."""
     ws = bootstrapped_workspace["workspace"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     job_id = uuid4()
 
     # Create job with outbox entry
@@ -81,7 +82,7 @@ async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace)
         type=JobType.INVESTIGATE,
         status=JobStatus.QUEUED,
         resource_id=uuid4(),
-        resource_type="investigation",
+        resource_type=ResourceType.INVESTIGATION,
         attempt=1,
         stage="QUEUED",
         started_at=None,
@@ -99,6 +100,7 @@ async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace)
 
     # Worker 1 acquires lease -> generation 1
     runner1 = JobRunner(state_repo=state_repo, worker_id="worker-1")
+    assert runner1.worker_id == "worker-1"
     gen1 = await state_repo.acquire_job_lease(job_id, worker_id="worker-1", lease_seconds=60)
     assert gen1 == 1
 
@@ -137,7 +139,7 @@ async def test_ac37_idempotency_replay(api_client, state_repo, bootstrapped_work
     ws = bootstrapped_workspace["workspace"]
     admin_uid = bootstrapped_workspace["admin_uid"]
     job_id = uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Seed a failed investigation job
     failed_job = Job(
@@ -146,15 +148,20 @@ async def test_ac37_idempotency_replay(api_client, state_repo, bootstrapped_work
         version=1,
         created_at=now,
         updated_at=now,
-        type=JobType.INVESTIGATION,
+        type=JobType.INVESTIGATE,
         status=JobStatus.FAILED,
         resource_id=uuid4(),
-        resource_type="investigation",
+        resource_type=ResourceType.INVESTIGATION,
         attempt=1,
         stage="FAILED",
         started_at=now,
         finished_at=now,
-        error="Temporary provider timeout",
+        error=Error(
+            code="PROVIDER_TIMEOUT",
+            message="Temporary provider timeout",
+            request_id=uuid4(),
+            details=[],
+        ),
         linked_previous_job_id=None,
         model_id=None,
         usage=None,

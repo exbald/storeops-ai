@@ -3,9 +3,9 @@
 
 import argparse
 import asyncio
-from pathlib import Path
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 # Ensure project root is on sys.path
@@ -35,7 +35,7 @@ async def bootstrap_workspace(
     admin_uid: str,
     admin_email: str | None = None,
 ) -> tuple[Workspace, str]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ws_id = uuid4()
     currency = Currency(currency_str.upper())
 
@@ -55,7 +55,8 @@ async def bootstrap_workspace(
         uid=admin_uid,
         email=admin_email,
     )
-    return workspace, membership.role
+    role_str = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
+    return workspace, role_str
 
 
 async def add_workspace_member(
@@ -103,7 +104,7 @@ def main():
         )
         print(f"Successfully added user '{args.uid}' with role '{args.role}' to workspace '{args.workspace_id}'.")
     else:
-        ws, role = asyncio.run(
+        ws, _role = asyncio.run(
             bootstrap_workspace(
                 repo=repo,
                 workspace_name=args.workspace_name,
