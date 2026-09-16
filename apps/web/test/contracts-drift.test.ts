@@ -263,3 +263,97 @@ test("StoreOpsClient wire format: sends Authorization, X-Workspace-Id, and maps 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("StoreOpsClient wire format: sends Idempotency-Key header on mutating POST requests", async () => {
+  const originalFetch = globalThis.fetch;
+  let interceptedHeaders: Record<string, string> = {};
+  let interceptedMethod = "";
+
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    interceptedMethod = init?.method || "GET";
+    interceptedHeaders = (init?.headers as Record<string, string>) || {};
+
+    return new Response(
+      JSON.stringify({
+        id: "00000000-0000-0000-0000-000000000099",
+        code: "STR-WIRE",
+        name: "Wire Store",
+        retailer: "FairPrice",
+        region: "North",
+        format: "CONVENIENCE",
+        timezone: "Asia/Singapore",
+        distributor_location_id: null,
+        active: true,
+        version: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+      { status: 201, headers: { "Content-Type": "application/json" } }
+    );
+  };
+
+  try {
+    const client = new StoreOpsClient({
+      useDoubles: false,
+      baseUrl: "https://api.storeops.test",
+      getAuthToken: async () => "mock-bearer-token",
+      getWorkspaceId: () => "00000000-0000-0000-0000-000000000001",
+    });
+
+    await client.createStore({
+      code: "STR-WIRE",
+      name: "Wire Store",
+      retailer: "FairPrice",
+      region: "North",
+      format: "CONVENIENCE",
+      timezone: "Asia/Singapore",
+    });
+
+    assert.equal(interceptedMethod, "POST");
+    assert.ok(interceptedHeaders["Idempotency-Key"], "Idempotency-Key must be sent on POST");
+    assert.match(interceptedHeaders["Idempotency-Key"], RFC4122_UUID_REGEX, "Idempotency-Key must be a valid UUID");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("StoreOpsClient listStores conforms to OpenAPI query parameters (no search param)", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+
+  globalThis.fetch = async (input: RequestInfo | URL): Promise<Response> => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ items: [], next_cursor: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new StoreOpsClient({
+      useDoubles: false,
+      baseUrl: "https://api.storeops.test",
+      getAuthToken: async () => "mock-token",
+    });
+
+    await client.listStores({ active: true });
+    assert.equal(requestedUrl, "https://api.storeops.test/stores?active=true");
+    assert.ok(!requestedUrl.includes("search="), "GET /stores must not include search query parameter per openapi");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("StoreOpsClient updateStore double does not leak expected_version onto Store entity", async () => {
+  const client = new StoreOpsClient({ useDoubles: true });
+  const stores = await client.listStores();
+  const target = stores.items[0];
+
+  const updated = await client.updateStore(target.id, {
+    expected_version: target.version,
+    name: "Updated Name Clean",
+  });
+
+  assert.equal(updated.name, "Updated Name Clean");
+  assert.equal("expected_version" in updated, false, "Store entity must not have expected_version field");
+});

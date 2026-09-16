@@ -124,6 +124,7 @@ export class StoreOpsClient {
       );
     }
 
+    const method = (options.method || "GET").toUpperCase();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string>),
@@ -134,6 +135,10 @@ export class StoreOpsClient {
     }
     if (workspaceId && !path.startsWith("/me") && !path.startsWith("/health")) {
       headers["X-Workspace-Id"] = workspaceId;
+    }
+    // Frozen contract requires Idempotency-Key on POST requests
+    if (method === "POST" && !headers["Idempotency-Key"]) {
+      headers["Idempotency-Key"] = generateUuid();
     }
 
     const response = await fetch(`${this.baseUrl}${path}`, {
@@ -192,22 +197,18 @@ export class StoreOpsClient {
   }
 
   // --- Stores ---
-  async listStores(params?: { active?: boolean; search?: string }): Promise<{ items: Store[]; next_cursor: string | null }> {
+  async listStores(params?: { active?: boolean }): Promise<{ items: Store[]; next_cursor: string | null }> {
     if (this.useDoubles) {
       let items = [...this.doubleStores];
       if (params?.active !== undefined) {
         items = items.filter((s) => s.active === params.active);
       }
-      if (params?.search) {
-        const q = params.search.toLowerCase();
-        items = items.filter((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q));
-      }
       return { items, next_cursor: null };
     }
     const query = new URLSearchParams();
     if (params?.active !== undefined) query.set("active", String(params.active));
-    if (params?.search) query.set("search", params.search);
-    return this.fetch<{ items: Store[]; next_cursor: string | null }>(`/stores?${query.toString()}`);
+    const qs = query.toString();
+    return this.fetch<{ items: Store[]; next_cursor: string | null }>(`/stores${qs ? `?${qs}` : ""}`);
   }
 
   async createStore(data: StoreCreate): Promise<Store> {
@@ -245,9 +246,21 @@ export class StoreOpsClient {
         throw new VersionConflictError("Store has been modified concurrently. Expected version mismatch.");
       }
       const updated: Store = {
-        ...current,
-        ...data,
+        id: current.id,
+        workspace_id: current.workspace_id,
+        code: current.code,
+        name: data.name !== undefined ? data.name : current.name,
+        retailer: data.retailer !== undefined ? data.retailer : current.retailer,
+        format: data.format !== undefined ? data.format : current.format,
+        region: data.region !== undefined ? data.region : current.region,
+        timezone: data.timezone !== undefined ? data.timezone : current.timezone,
+        distributor_location_id:
+          data.distributor_location_id !== undefined
+            ? data.distributor_location_id
+            : current.distributor_location_id,
+        active: data.active !== undefined ? data.active : current.active,
         version: current.version + 1,
+        created_at: current.created_at,
         updated_at: new Date().toISOString(),
       };
       this.doubleStores[idx] = updated;
