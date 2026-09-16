@@ -36,7 +36,7 @@ The StoreOps Cloud profile implements a serverless, decoupled architecture on Go
        |
        v
 +--------------+
-| Gemini 2.5 / |
+| Gemini 3.8 / |
 |   Vertex AI  |
 +--------------+
 ```
@@ -46,7 +46,7 @@ The StoreOps Cloud profile implements a serverless, decoupled architecture on Go
 | Component | GCP Service | Visibility | Configuration / Notes |
 |---|---|---|---|
 | **API Service** | Cloud Run (`storeops-api`) | Public Ingress | Port 8000. Firebase token authentication. Ingress `all`. |
-| **Worker Service** | Cloud Run (`storeops-worker`) | Private / Internal | Ingress `internal`. Runs `apps.api.worker` daemon loop. Only invokable by Invoker SA via OIDC. |
+| **Worker Service** | Cloud Run (`storeops-worker`) | Private / Internal | Ingress `internal`. Runs `scripts.deploy.run_worker` (port 8001 HTTP listener + worker outbox loop). Only invokable by Invoker SA via OIDC. |
 | **Asynchronous Jobs** | Cloud Tasks (`storeops-work-queue`) | Regional | Rate-limited (10 dispatches/sec, max 5 concurrent). |
 | **Scheduled Outbox** | Cloud Scheduler (`storeops-outbox-drain`) | Regional | Runs `* * * * *` (every 1 min), pings `/health` with OIDC (heartbeat until `/outbox/drain` route is integrated). |
 | **Media Storage** | Cloud Storage (`storeops-${PROJECT_ID}-media`) | Private | Uniform bucket-level access, signed download URLs, CORS enabled. |
@@ -117,7 +117,7 @@ terraform apply
 4. Creates BigQuery dataset and executes `infra/bigquery_schema.sql` (partitioning & clustering).
 5. Deploys Firestore composite indexes from `infra/firestore.indexes.json`.
 6. Configures Cloud Tasks queue `storeops-work-queue`.
-7. Deploys Private Worker Cloud Run service (`--no-allow-unauthenticated`, executing `python3 -m apps.api.worker`). Note: Cloud Run Services requires an HTTP port binding or long-running worker daemon execution; for push-based execution, Cloud Tasks dispatches invoke internal worker endpoints or trigger Cloud Run Jobs.
+7. Deploys Private Worker Cloud Run service (`--no-allow-unauthenticated`, executing `python3 -m scripts.deploy.run_worker` binding port 8001 to satisfy Cloud Run Services lifecycle requirements and executing outbox loop).
 8. Deploys Public API Cloud Run service.
 9. Sets up Cloud Scheduler outbox drain job on `* * * * *` (pings `/health` heartbeat).
 

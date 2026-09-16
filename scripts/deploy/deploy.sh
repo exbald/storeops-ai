@@ -84,6 +84,7 @@ gcloud services enable \
     bigquery.googleapis.com \
     storage.googleapis.com \
     aiplatform.googleapis.com \
+    artifactregistry.googleapis.com \
     --project="${PROJECT_ID}"
 
 # 5. Service Accounts Setup
@@ -167,7 +168,8 @@ fi
 echo -e "\n${BLUE}Step 7: Deploying Private Cloud Run Worker...${NC}"
 gcloud run deploy storeops-worker \
     --source="${ROOT_DIR}" \
-    --command="python3,-m,apps.api.worker" \
+    --command="python3,-m,scripts.deploy.run_worker" \
+    --port=8001 \
     --service-account="${WORKER_SA}" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \

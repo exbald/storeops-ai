@@ -15,18 +15,6 @@ variable "app_env" {
   default     = "dev"
 }
 
-variable "budget_amount" {
-  description = "Configurable development budget in USD"
-  type        = number
-  default     = 100.0
-}
-
-variable "budget_alert_email" {
-  description = "Email recipient for budget threshold notifications"
-  type        = string
-  default     = ""
-}
-
 variable "gemini_model_id" {
   description = "Primary Gemini model ID per specs/01-architecture.md"
   type        = string

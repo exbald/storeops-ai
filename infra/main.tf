@@ -23,6 +23,7 @@ locals {
     "bigquery.googleapis.com",
     "storage.googleapis.com",
     "aiplatform.googleapis.com",
+    "artifactregistry.googleapis.com",
   ]
 }
 
@@ -240,7 +241,18 @@ resource "google_cloud_tasks_queue" "work_queue" {
   depends_on = [google_project_service.apis]
 }
 
-# 8. Cloud Run API Service (Public Ingress)
+# 8. Artifact Registry Repository
+resource "google_artifact_registry_repository" "storeops" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = "storeops"
+  description   = "Docker container images for StoreOps services"
+  format        = "DOCKER"
+
+  depends_on = [google_project_service.apis]
+}
+
+# 9. Cloud Run API Service (Public Ingress)
 resource "google_cloud_run_v2_service" "api" {
   name     = "storeops-api"
   location = var.region
@@ -321,7 +333,10 @@ resource "google_cloud_run_v2_service" "worker" {
     }
     containers {
       image   = "${var.region}-docker.pkg.dev/${var.project_id}/storeops/storeops-worker:latest"
-      command = ["python3", "-m", "apps.api.worker"]
+      command = ["python3", "-m", "scripts.deploy.run_worker"]
+      ports {
+        container_port = 8001
+      }
       resources {
         limits = {
           cpu    = "2"

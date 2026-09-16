@@ -48,7 +48,7 @@ def check_scaffold_configs() -> dict[str, Any]:
     bq_path = ROOT_DIR / "infra" / "bigquery_schema.sql"
     if bq_path.exists():
         content = bq_path.read_text(encoding="utf-8")
-        if "daily_sales" in content and "inventory_snapshots" in content and "import_batches" in content:
+        if "sales_facts" in content and "inventory_facts" in content and "import_batches" in content:
             results["bigquery_schema"] = True
 
     # 3. Worker IAM

@@ -122,12 +122,12 @@ def test_bigquery_schema_ddl():
 
     content = schema_file.read_text(encoding="utf-8")
 
-    assert "CREATE TABLE IF NOT EXISTS daily_sales" in content
+    assert "CREATE TABLE IF NOT EXISTS sales_facts" in content
     assert "PARTITION BY business_date" in content
-    assert "CLUSTER BY workspace_id, store_code, sku" in content
+    assert "CLUSTER BY workspace_id, store_id, sku" in content
 
-    assert "CREATE TABLE IF NOT EXISTS inventory_snapshots" in content
-    assert "CLUSTER BY workspace_id, location_code, sku" in content
+    assert "CREATE TABLE IF NOT EXISTS inventory_facts" in content
+    assert "CLUSTER BY workspace_id, location_id, sku" in content
 
     assert "CREATE TABLE IF NOT EXISTS import_batches" in content
     assert "CLUSTER BY workspace_id, batch_id" in content
@@ -162,6 +162,9 @@ def test_terraform_files_syntax():
     assert "resource \"google_cloud_scheduler_job\" \"outbox_drain\"" in content
     assert "resource \"google_storage_bucket\" \"media\"" in content
     assert "resource \"google_bigquery_dataset\" \"analytics\"" in content
+    assert "resource \"google_artifact_registry_repository\" \"storeops\"" in content
+    assert 'command = ["python3", "-m", "scripts.deploy.run_worker"]' in content
+    assert "container_port = 8001" in content
 
     variables_tf = INFRA_DIR / "variables.tf"
     assert variables_tf.exists()
@@ -258,4 +261,42 @@ async def test_ac41_queue_worker_smoke_handler():
     fetched = await state_repo.get_job(ws_id, job_id)
     assert fetched is not None
     assert fetched.status == JobStatus.SUCCEEDED
+
+    # Duplicate delivery tolerance: second runner invocation on completed job is a no-op
+    executed_again = False
+
+    async def _fail_on_duplicate(j: Job, generation: int):
+        nonlocal executed_again
+        executed_again = True
+
+    runner2 = JobRunner(state_repo=state_repo, worker_id="smoke-worker-2")
+    runner2.register_handler(job.type.value if hasattr(job.type, "value") else str(job.type), _fail_on_duplicate)
+    duplicate_result = await runner2.execute_job(ws_id, job_id)
+    assert duplicate_result is True, "Terminal job execution should return True without re-running"
+    assert not executed_again, "Completed job handler must not be re-executed on duplicate delivery"
+
+
+@pytest.mark.asyncio
+async def test_ac41_cloud_run_worker_http_server():
+    """AC-41: scripts.deploy.run_worker binds port and responds 200 OK to Cloud Run health checks."""
+    import asyncio
+
+    from scripts.deploy.run_worker import _handle_http_client
+
+    server = await asyncio.start_server(_handle_http_client, "127.0.0.1", 0)
+    host, port = server.sockets[0].getsockname()
+
+    async with server:
+        reader, writer = await asyncio.open_connection(host, port)
+        writer.write(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        await writer.drain()
+
+        response = await reader.read(1024)
+        writer.close()
+        await writer.wait_closed()
+
+        assert b"HTTP/1.1 200 OK" in response
+        assert b"READY" in response
+        assert b"storeops-worker" in response
+
 
