@@ -54,7 +54,7 @@
     {
       "id": "T01",
       "title": "Empty identity, persistence and durable job foundation",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T00"
