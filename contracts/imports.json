@@ -1,0 +1,111 @@
+{
+  "version": "2.0.0",
+  "encoding": "UTF-8",
+  "delimiter": ",",
+  "header_required": true,
+  "extra_columns": "reject",
+  "max_bytes": 10485760,
+  "max_rows": 50000,
+  "unknown_references": "reject",
+  "partial_commit": false,
+  "money": "decimal string with exactly two fractional digits; workspace currency must match",
+  "SALES": {
+    "columns": [
+      "store_code",
+      "sku",
+      "business_date",
+      "units",
+      "revenue",
+      "currency"
+    ],
+    "logical_key": [
+      "store_code",
+      "sku",
+      "business_date"
+    ],
+    "fields": {
+      "store_code": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "sku": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "business_date": {
+        "type": "string",
+        "format": "date"
+      },
+      "units": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "revenue": {
+        "type": "string",
+        "pattern": "^\\d+\\.\\d{2}$"
+      },
+      "currency": {
+        "type": "string",
+        "enum": [
+          "SGD",
+          "USD",
+          "AUD"
+        ]
+      }
+    },
+    "rules": [
+      "Resolve store and SKU in workspace; both active at validation and recheck at commit.",
+      "Duplicate logical keys within a file are errors, even if the values match.",
+      "Future business dates are invalid; explicit zero rows establish zero sales.",
+      "Reject unsupported negative sales or currency mismatch; never infer a currency."
+    ]
+  },
+  "INVENTORY": {
+    "columns": [
+      "location_code",
+      "sku",
+      "observed_at",
+      "quantity",
+      "unit"
+    ],
+    "logical_key": [
+      "location_code",
+      "sku",
+      "observed_at"
+    ],
+    "fields": {
+      "location_code": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "sku": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "observed_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "quantity": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "unit": {
+        "type": "string",
+        "enum": [
+          "UNIT",
+          "CASE"
+        ]
+      }
+    },
+    "rules": [
+      "Resolve active location and SKU; do not create them implicitly.",
+      "Duplicate logical keys within a file are errors.",
+      "Future timestamps beyond five-minute clock tolerance are invalid.",
+      "Normalize CASE using product.case_units frozen at import and retain raw unit/quantity."
+    ]
+  },
+  "corrections": "Append a new committed batch; latest committed revision wins per logical key.",
+  "deduplication": "Same workspace/kind/source hash returns existing committed import; repeat commits reuse batch_id.",
+  "empty_file": "Invalid: require at least one data row; no business data is created on installation."
+}

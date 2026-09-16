@@ -1,0 +1,50 @@
+{
+  "status": "passed",
+  "kind": "specification_integrity_only",
+  "application_tests": "not_run",
+  "full_openapi_meta_validation": "required_in_T00_not_run_by_this_stdlib_check",
+  "requirements": 15,
+  "tasks": 15,
+  "acceptance_cases": 41,
+  "api_operations": 49,
+  "api_schemas": 69,
+  "ai_definitions": 10,
+  "schema_refs_checked": 598,
+  "schema_examples_checked": 13,
+  "typed_tool_contracts": 7,
+  "tool_schema_refs_checked": 15,
+  "local_links_checked": 21,
+  "waves": [
+    [
+      "T00"
+    ],
+    [
+      "T01"
+    ],
+    [
+      "T02",
+      "T03",
+      "T05",
+      "T06",
+      "T11"
+    ],
+    [
+      "T04",
+      "T07"
+    ],
+    [
+      "T08",
+      "T09"
+    ],
+    [
+      "T10"
+    ],
+    [
+      "T12",
+      "T13"
+    ],
+    [
+      "T14"
+    ]
+  ]
+}

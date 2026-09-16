@@ -1,0 +1,775 @@
+{
+  "version": "2.0.0",
+  "status": "planned",
+  "coordinator_owns_after_freeze": [
+    "contracts/",
+    "shared dependency lockfiles",
+    "application composition roots"
+  ],
+  "tasks": [
+    {
+      "id": "T00",
+      "title": "Freeze contracts and scaffold reproducible tooling",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [],
+      "owner_role": "coordinator",
+      "owned_paths": [
+        "contracts/",
+        "packages/contracts/",
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "pyproject.toml",
+        "uv.lock",
+        "docs/versions.md"
+      ],
+      "requirements": [
+        "R13",
+        "R14"
+      ],
+      "acceptance_ids": [
+        "AC36"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/00-product.md",
+        "specs/01-architecture.md",
+        "specs/07-delivery.md",
+        "specs/08-parallel.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Pinned runtime/dependency versions and lockfiles",
+        "Generated client/server conformance process",
+        "Spec validator plus full OpenAPI/JSON Schema validation",
+        "Task execution ledger and recorded interface freeze"
+      ],
+      "integration_gate": "G0: schemas/examples validate and generated artifacts reproduce cleanly.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T01",
+      "title": "Empty identity, persistence and durable job foundation",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T00"
+      ],
+      "owner_role": "foundation",
+      "owned_paths": [
+        "apps/api/core/",
+        "apps/api/ports/",
+        "apps/api/adapters/state/",
+        "apps/api/adapters/blob/",
+        "apps/api/jobs/",
+        "apps/api/main.py",
+        "apps/api/worker.py",
+        "tests/foundation/",
+        "scripts/bootstrap.py"
+      ],
+      "requirements": [
+        "R01",
+        "R03",
+        "R12",
+        "R14",
+        "R15"
+      ],
+      "acceptance_ids": [
+        "AC01",
+        "AC37"
+      ],
+      "operation_ids": [
+        "getHealth",
+        "getMe",
+        "getWorkspace",
+        "getJob",
+        "getJobEvents",
+        "retryJob"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/01-architecture.md",
+        "specs/02-domain.md",
+        "specs/03-workflows.md",
+        "specs/07-delivery.md",
+        "contracts/SEMANTICS.md",
+        "contracts/tools.json"
+      ],
+      "deliverables": [
+        "Workspace bootstrap and membership authorization",
+        "Firestore/emulator and blob ports",
+        "Outbox/lease/idempotency infrastructure",
+        "Empty local API+worker health path and predictable errors"
+      ],
+      "integration_gate": "G1: empty authenticated app persists state through restart; no seed is invoked.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T02",
+      "title": "Catalog, locations and validated media",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T01"
+      ],
+      "owner_role": "catalog",
+      "owned_paths": [
+        "apps/api/modules/catalog/",
+        "tests/catalog/"
+      ],
+      "requirements": [
+        "R02",
+        "R03"
+      ],
+      "acceptance_ids": [
+        "AC03",
+        "AC04",
+        "AC05",
+        "AC35"
+      ],
+      "operation_ids": [
+        "listStores",
+        "createStore",
+        "getStore",
+        "updateStore",
+        "listLocations",
+        "createLocation",
+        "getLocation",
+        "updateLocation",
+        "listProducts",
+        "createProduct",
+        "getProduct",
+        "updateProduct",
+        "initMedia",
+        "completeMedia",
+        "getMedia"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/02-domain.md",
+        "specs/03-workflows.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Persisted CRUD/archive behavior",
+        "Store/backroom transaction",
+        "Bounded, validated uploads and reference binding"
+      ],
+      "integration_gate": "Catalog APIs work on arbitrary IDs and no prepopulated records; invalid media and archive tests pass.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T03",
+      "title": "CSV ingestion, analytics revisions and metric service",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T01"
+      ],
+      "owner_role": "data",
+      "owned_paths": [
+        "apps/api/modules/imports/",
+        "apps/api/analytics/",
+        "migrations/bigquery/",
+        "tests/data/"
+      ],
+      "requirements": [
+        "R04",
+        "R08",
+        "R12"
+      ],
+      "acceptance_ids": [
+        "AC06",
+        "AC07",
+        "AC08",
+        "AC13",
+        "AC14"
+      ],
+      "operation_ids": [
+        "listImports",
+        "createImport",
+        "getImport",
+        "commitImport",
+        "getStoreHealth"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/02-domain.md",
+        "specs/03-workflows.md",
+        "specs/05-ai.md",
+        "contracts/imports.json",
+        "contracts/SEMANTICS.md",
+        "contracts/tools.json"
+      ],
+      "deliverables": [
+        "Versioned BigQuery migrations",
+        "CSV validation and atomic commit workflow",
+        "DuckDB and BigQuery adapters",
+        "Deterministic peer_gap_v1 metrics and snapshot query templates"
+      ],
+      "integration_gate": "Valid/invalid/correcting imports and local math tests pass; cloud parity remains explicitly pending until T12.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T04",
+      "title": "Reviewed, versioned policy workflow",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T02",
+        "T06"
+      ],
+      "owner_role": "policy",
+      "owned_paths": [
+        "apps/api/modules/policies/",
+        "tests/policies/"
+      ],
+      "requirements": [
+        "R05",
+        "R12"
+      ],
+      "acceptance_ids": [
+        "AC09",
+        "AC10",
+        "AC34",
+        "AC35"
+      ],
+      "operation_ids": [
+        "listPromotions",
+        "createPromotion",
+        "getPromotion",
+        "updatePromotion",
+        "extractPolicy",
+        "approvePolicy",
+        "listPolicyVersions"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/02-domain.md",
+        "specs/03-workflows.md",
+        "specs/05-ai.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Draft/extract/review/approve APIs",
+        "Immutable policy history and source locators",
+        "Stale-policy invalidation checks"
+      ],
+      "integration_gate": "G2 backend: admin approval is required and concurrent/stale policy writes fail safely.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T05",
+      "title": "Web shell and management screens against frozen contracts",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T01"
+      ],
+      "owner_role": "web",
+      "owned_paths": [
+        "apps/web/",
+        "tests/web-management/"
+      ],
+      "requirements": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R11"
+      ],
+      "acceptance_ids": [
+        "AC38"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/04-ui.md",
+        "specs/07-delivery.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Firebase sign-in and workspace selector",
+        "Setup/catalog/import/promotion screens",
+        "Generated-client integration and component tests for every data/error state"
+      ],
+      "integration_gate": "Management screens satisfy contracts; integration doubles are identified and replaced at T08.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T06",
+      "title": "Gemini gateway, observations and investigation reasoning",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T01"
+      ],
+      "owner_role": "ai",
+      "owned_paths": [
+        "apps/api/ai/",
+        "tests/ai/"
+      ],
+      "requirements": [
+        "R07",
+        "R08",
+        "R13"
+      ],
+      "acceptance_ids": [
+        "AC39"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/05-ai.md",
+        "specs/06-quality.md",
+        "contracts/ai-output.schema.json",
+        "contracts/SEMANTICS.md",
+        "contracts/tools.json"
+      ],
+      "deliverables": [
+        "Google Gen AI/ADK gateway with versioned prompts",
+        "Image and PDF structured extraction",
+        "Evidence-scoped Investigator with read-only tools",
+        "Provider-schema conversion and strict output checks"
+      ],
+      "integration_gate": "Structured and adversarial tests pass; small live probe recorded when credentials exist, otherwise marked blocked.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T07",
+      "title": "Persisted visits, investigations, plans and evidence",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T02",
+        "T03",
+        "T06"
+      ],
+      "owner_role": "workflow",
+      "owned_paths": [
+        "apps/api/modules/visits/",
+        "tests/visits/"
+      ],
+      "requirements": [
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R12"
+      ],
+      "acceptance_ids": [
+        "AC11",
+        "AC12",
+        "AC13",
+        "AC15",
+        "AC16"
+      ],
+      "operation_ids": [
+        "createVisit",
+        "listVisits",
+        "getVisit",
+        "updateVisit",
+        "createInvestigation",
+        "listInvestigations",
+        "getInvestigation",
+        "acceptInvestigation",
+        "dismissInvestigation",
+        "updateAction",
+        "listEvidence",
+        "getEvidence",
+        "getReport"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/02-domain.md",
+        "specs/03-workflows.md",
+        "specs/05-ai.md",
+        "contracts/SEMANTICS.md",
+        "contracts/tools.json"
+      ],
+      "deliverables": [
+        "Run snapshot/evidence persistence",
+        "Accepted action revisions and role checks",
+        "Job-backed investigation workflow and NO_ACTION report",
+        "Query/read APIs for cases and reports"
+      ],
+      "integration_gate": "Persisted input changes affect new investigations; acceptance and evidence are not tied to a seed.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T08",
+      "title": "Connect the complete browser workflow",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T04",
+        "T05",
+        "T07"
+      ],
+      "owner_role": "web",
+      "owned_paths": [
+        "apps/web/",
+        "tests/e2e/"
+      ],
+      "requirements": [
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11"
+      ],
+      "acceptance_ids": [
+        "AC40"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/04-ui.md",
+        "specs/03-workflows.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Real management API wiring",
+        "Visit/investigate/evidence/task/verification/report routes",
+        "Polling, reload recovery and mobile accessibility",
+        "Browser acceptance with minimal factories, no demo seed"
+      ],
+      "integration_gate": "UI consumes actual services; verifier-specific integration completes with T09 at T10.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T09",
+      "title": "Execution verifier and atomic resolution",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T04",
+        "T06",
+        "T07"
+      ],
+      "owner_role": "verification",
+      "owned_paths": [
+        "apps/api/ai/verifier/",
+        "apps/api/modules/verification/",
+        "tests/verification/"
+      ],
+      "requirements": [
+        "R09",
+        "R10",
+        "R12",
+        "R13"
+      ],
+      "acceptance_ids": [
+        "AC17",
+        "AC18",
+        "AC19",
+        "AC20",
+        "AC32",
+        "AC33",
+        "AC34"
+      ],
+      "operation_ids": [
+        "verifyInvestigation",
+        "listVerifications",
+        "getVerification"
+      ],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/03-workflows.md",
+        "specs/05-ai.md",
+        "contracts/states.json",
+        "contracts/SEMANTICS.md",
+        "contracts/tools.json"
+      ],
+      "deliverables": [
+        "New-media and frozen-policy validation",
+        "Deterministic per-rule and aggregate verification checks",
+        "Exactly-once business resolution and immutable attempts/reports"
+      ],
+      "integration_gate": "G4 backend: compliant photos close once; partial/unknown/stale evidence never falsely resolves.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T10",
+      "title": "Integrate every slice and harden regressions",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T08",
+        "T09"
+      ],
+      "owner_role": "coordinator",
+      "owned_paths": [
+        "tests/integration/",
+        "tests/contract/",
+        "tests/e2e/",
+        ".github/workflows/",
+        "docs/test-results.md"
+      ],
+      "requirements": [
+        "R01",
+        "R03",
+        "R04",
+        "R05",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12",
+        "R13",
+        "R15"
+      ],
+      "acceptance_ids": [
+        "AC02",
+        "AC04",
+        "AC05",
+        "AC06",
+        "AC07",
+        "AC08",
+        "AC10",
+        "AC12",
+        "AC13",
+        "AC14",
+        "AC15",
+        "AC16",
+        "AC17",
+        "AC18",
+        "AC19",
+        "AC20",
+        "AC21",
+        "AC22",
+        "AC23",
+        "AC24",
+        "AC25",
+        "AC26",
+        "AC32",
+        "AC33",
+        "AC34",
+        "AC35"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/06-quality.md",
+        "specs/03-workflows.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Combined-branch deterministic suite",
+        "Failure/concurrency/idempotency regressions",
+        "Generated-client drift check",
+        "No runtime seed/label dependencies"
+      ],
+      "integration_gate": "G2–G5 local: full empty-state workflow passes without mocks at service boundaries; model test double clearly identified.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T11",
+      "title": "Provision authorized cloud development deployment",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T01"
+      ],
+      "owner_role": "cloud",
+      "owned_paths": [
+        "infra/",
+        "scripts/deploy/",
+        "docs/cloud-setup.md"
+      ],
+      "requirements": [
+        "R01",
+        "R12",
+        "R14"
+      ],
+      "acceptance_ids": [
+        "AC41"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/01-architecture.md",
+        "specs/02-domain.md",
+        "specs/07-delivery.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Repeatable Cloud Run/Tasks/Storage/Firestore/BigQuery configuration",
+        "Private worker and outbox schedule",
+        "Indexes/service accounts/quotas",
+        "Health and rollback instructions"
+      ],
+      "integration_gate": "Cloud scaffold deploys only to the explicit authorized project; missing credentials block this gate without blocking local tasks.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T12",
+      "title": "Run cloud parity and live model acceptance",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T10",
+        "T11"
+      ],
+      "owner_role": "evaluation",
+      "owned_paths": [
+        "evals/",
+        "tests/cloud/",
+        "docs/evaluation/"
+      ],
+      "requirements": [
+        "R04",
+        "R07",
+        "R08",
+        "R10",
+        "R13",
+        "R14"
+      ],
+      "acceptance_ids": [
+        "AC27",
+        "AC28",
+        "AC29"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/06-quality.md",
+        "specs/07-delivery.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Frozen split and labeled media provenance",
+        "BigQuery/local parity report",
+        "Live model, baseline and false-resolution counts",
+        "Queue/latency/cost results with model/prompt/schema versions"
+      ],
+      "integration_gate": "G3/G5/G6 live: actual cloud and model gates pass; otherwise record the precise blocker or approved scope reduction.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T13",
+      "title": "Optional independent demo seed and replay suite",
+      "status": "planned",
+      "optional": true,
+      "depends_on": [
+        "T10"
+      ],
+      "owner_role": "fixtures",
+      "owned_paths": [
+        "fixtures/demo/",
+        "scripts/seed_demo/",
+        "tests/demo/"
+      ],
+      "requirements": [
+        "R15"
+      ],
+      "acceptance_ids": [
+        "AC30"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/00-product.md",
+        "specs/06-quality.md",
+        "contracts/imports.json",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Dated demo manifest and importable files/media",
+        "Idempotent seed command using normal services",
+        "Separate demo regression assertions"
+      ],
+      "integration_gate": "The application and ordinary tests still run with this directory absent.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    },
+    {
+      "id": "T14",
+      "title": "Accept the core MVP from an empty install",
+      "status": "planned",
+      "optional": false,
+      "depends_on": [
+        "T12"
+      ],
+      "owner_role": "coordinator",
+      "owned_paths": [
+        "docs/release.md",
+        "docs/user-guide.md",
+        "docs/empty-install.md"
+      ],
+      "requirements": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12",
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "acceptance_ids": [
+        "AC01",
+        "AC24",
+        "AC26",
+        "AC31"
+      ],
+      "operation_ids": [],
+      "read_first": [
+        "AGENTS.md",
+        "contracts/openapi.json",
+        "specs/00-product.md",
+        "specs/06-quality.md",
+        "specs/07-delivery.md",
+        "contracts/SEMANTICS.md"
+      ],
+      "deliverables": [
+        "Fresh-workspace end-to-end acceptance",
+        "Actual commit/deployment/test/eval evidence",
+        "Operator/user setup and limitations",
+        "Final task ledger with no silent blocked gates"
+      ],
+      "integration_gate": "All required gates pass without T13; users can populate and use the complete MVP through normal interfaces.",
+      "test_first": "Write failing tests for this task’s scoped acceptance IDs before implementation. Later full-flow cases remain pending until their owner gate.",
+      "handoff": "Use the AGENTS.md handoff template. Do not claim live acceptance from test doubles."
+    }
+  ]
+}

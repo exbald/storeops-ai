@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "result_envelope_schema_ref": "openapi.json#/components/schemas/ToolEnvelope",
+  "validation": "Validate the envelope and then non-null data against data_schema_ref. Unknown fields in typed data are rejected.",
+  "scope": "Server binds and verifies workspace, snapshot, policy/catalog and media context. A model cannot change those scopes.",
+  "tools": [
+    {
+      "name": "get_sales_context",
+      "input_schema_ref": "openapi.json#/components/schemas/SnapshotToolInput",
+      "data_schema_ref": "openapi.json#/components/schemas/SalesContext",
+      "business_mutations": false
+    },
+    {
+      "name": "get_inventory_context",
+      "input_schema_ref": "openapi.json#/components/schemas/SnapshotToolInput",
+      "data_schema_ref": "openapi.json#/components/schemas/StockContext",
+      "business_mutations": false
+    },
+    {
+      "name": "get_approved_policy",
+      "input_schema_ref": "openapi.json#/components/schemas/PolicyToolInput",
+      "data_schema_ref": "openapi.json#/components/schemas/PolicyVersion",
+      "business_mutations": false
+    },
+    {
+      "name": "get_visit_history",
+      "input_schema_ref": "openapi.json#/components/schemas/VisitHistoryToolInput",
+      "data_schema_ref": "openapi.json#/components/schemas/VisitHistoryContext",
+      "business_mutations": false
+    },
+    {
+      "name": "inspect_image",
+      "input_schema_ref": "openapi.json#/components/schemas/InspectImageToolInput",
+      "data_schema_ref": "ai-output.schema.json#/$defs/ImageObservation",
+      "business_mutations": false
+    },
+    {
+      "name": "extract_policy",
+      "input_schema_ref": "openapi.json#/components/schemas/ExtractPolicyToolInput",
+      "data_schema_ref": "ai-output.schema.json#/$defs/PolicyExtraction",
+      "business_mutations": false
+    },
+    {
+      "name": "calculate_metrics",
+      "input_schema_ref": "openapi.json#/components/schemas/SalesContext",
+      "data_schema_ref": "openapi.json#/components/schemas/Metrics",
+      "business_mutations": false
+    }
+  ]
+}

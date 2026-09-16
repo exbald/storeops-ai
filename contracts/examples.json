@@ -1,0 +1,211 @@
+{
+  "purpose": "Schema contract fixtures only; never loaded by app startup.",
+  "api": [
+    {
+      "name": "create arbitrary store",
+      "schema": "StoreCreate",
+      "valid": true,
+      "value": {
+        "code": "SHOP_17",
+        "name": "Example shop",
+        "retailer": "Example retailer",
+        "region": "SG",
+        "format": "compact",
+        "timezone": "Asia/Singapore",
+        "distributor_location_id": null
+      }
+    },
+    {
+      "name": "create arbitrary product",
+      "schema": "ProductCreate",
+      "valid": true,
+      "value": {
+        "sku": "SKU_Q9",
+        "name": "Example product",
+        "case_units": 12
+      }
+    },
+    {
+      "name": "zero case size rejected",
+      "schema": "ProductCreate",
+      "valid": false,
+      "value": {
+        "sku": "SKU_Q9",
+        "name": "Example product",
+        "case_units": 0
+      }
+    },
+    {
+      "name": "unknown create field rejected",
+      "schema": "ProductCreate",
+      "valid": false,
+      "value": {
+        "sku": "SKU_Q9",
+        "name": "Example product",
+        "case_units": 12,
+        "demo": true
+      }
+    },
+    {
+      "name": "missing commercial metrics",
+      "schema": "Metrics",
+      "valid": true,
+      "value": {
+        "sales_delta": null,
+        "peer_growth": null,
+        "expected_units": null,
+        "opportunity_proxy": null,
+        "currency": "SGD",
+        "prior_start": "2026-09-02",
+        "prior_end": "2026-09-08",
+        "current_start": "2026-09-09",
+        "current_end": "2026-09-15",
+        "peer_store_ids": [],
+        "null_reasons": [
+          "No complete sales window"
+        ],
+        "formula_version": "peer_gap_v1",
+        "evidence_ids": []
+      }
+    },
+    {
+      "name": "queued durable job",
+      "schema": "Job",
+      "valid": true,
+      "value": {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "workspace_id": "00000000-0000-4000-8000-000000000002",
+        "version": 1,
+        "created_at": "2026-09-16T01:00:00Z",
+        "updated_at": "2026-09-16T01:00:00Z",
+        "type": "INVESTIGATE",
+        "status": "QUEUED",
+        "resource_id": "00000000-0000-4000-8000-000000000003",
+        "resource_type": "INVESTIGATION",
+        "attempt": 0,
+        "stage": null,
+        "started_at": null,
+        "finished_at": null,
+        "error": null,
+        "linked_previous_job_id": null,
+        "model_id": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "rep cannot supply verified action status",
+      "schema": "ActionUpdate",
+      "valid": false,
+      "value": {
+        "expected_version": 1,
+        "status": "VERIFIED"
+      }
+    },
+    {
+      "name": "empty investigation media rejected",
+      "schema": "InvestigationCreate",
+      "valid": false,
+      "value": {
+        "store_id": "00000000-0000-4000-8000-000000000001",
+        "visit_id": "00000000-0000-4000-8000-000000000002",
+        "promotion_id": "00000000-0000-4000-8000-000000000003",
+        "media_ids": []
+      }
+    }
+  ],
+  "ai": [
+    {
+      "name": "partial display view remains unknown",
+      "schema": "ImageObservation",
+      "valid": true,
+      "value": {
+        "media_id": "00000000-0000-4000-8000-000000000005",
+        "zone_id": "promo-endcap",
+        "zone_kind": "DISPLAY",
+        "quality": "CLEAR",
+        "coverage": "PARTIAL",
+        "occluded": false,
+        "detections": [],
+        "display": "UNKNOWN",
+        "limitations": [
+          "Designated display area is not fully visible."
+        ]
+      }
+    },
+    {
+      "name": "image with identified product",
+      "schema": "ImageObservation",
+      "valid": true,
+      "value": {
+        "media_id": "00000000-0000-4000-8000-000000000006",
+        "zone_id": "main-shelf",
+        "zone_kind": "SHELF",
+        "quality": "CLEAR",
+        "coverage": "FULL",
+        "occluded": false,
+        "detections": [
+          {
+            "product_id": "00000000-0000-4000-8000-000000000007",
+            "view": "FRONT",
+            "box": [
+              10,
+              20,
+              500,
+              400
+            ],
+            "identity": "CLEAR",
+            "label": "Example product"
+          }
+        ],
+        "display": "UNKNOWN",
+        "limitations": []
+      }
+    },
+    {
+      "name": "unknown confidence property rejected",
+      "schema": "VerificationProposal",
+      "valid": false,
+      "value": {
+        "checks": [
+          {
+            "rule_id": "00000000-0000-4000-8000-000000000008",
+            "result": "UNKNOWN",
+            "evidence_ids": [],
+            "explanation": "Missing zone"
+          }
+        ],
+        "requested_retakes": [
+          "Capture display"
+        ],
+        "confidence": 0.91
+      }
+    },
+    {
+      "name": "missing check array rejected",
+      "schema": "VerificationProposal",
+      "valid": false,
+      "value": {
+        "checks": [],
+        "requested_retakes": []
+      }
+    },
+    {
+      "name": "inconclusive check schema",
+      "schema": "VerificationProposal",
+      "valid": true,
+      "value": {
+        "checks": [
+          {
+            "rule_id": "00000000-0000-4000-8000-000000000008",
+            "result": "UNKNOWN",
+            "evidence_ids": [],
+            "explanation": "No usable view of the required zone."
+          }
+        ],
+        "requested_retakes": [
+          "Capture promo-endcap."
+        ]
+      }
+    }
+  ]
+}

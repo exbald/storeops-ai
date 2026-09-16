@@ -1,0 +1,520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://storeops.example/spec/v2/ai-output.schema.json",
+  "title": "StoreOps model output definitions",
+  "description": "Definitions-only schema; select the exact $defs entry for each stage.",
+  "$defs": {
+    "Box": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "Detection": {
+      "type": "object",
+      "properties": {
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "view": {
+          "type": "string",
+          "enum": [
+            "FRONT",
+            "OTHER"
+          ]
+        },
+        "box": {
+          "$ref": "#/$defs/Box"
+        },
+        "identity": {
+          "type": "string",
+          "enum": [
+            "CLEAR",
+            "AMBIGUOUS"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "product_id",
+        "view",
+        "box",
+        "identity",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    "ImageObservation": {
+      "type": "object",
+      "properties": {
+        "media_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "zone_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+        },
+        "zone_kind": {
+          "type": "string",
+          "enum": [
+            "SHELF",
+            "DISPLAY"
+          ]
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "CLEAR",
+            "UNUSABLE"
+          ]
+        },
+        "coverage": {
+          "type": "string",
+          "enum": [
+            "FULL",
+            "PARTIAL",
+            "UNKNOWN"
+          ]
+        },
+        "occluded": {
+          "type": "boolean"
+        },
+        "detections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Detection"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "display": {
+          "type": "string",
+          "enum": [
+            "PRESENT",
+            "ABSENT",
+            "UNKNOWN"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "media_id",
+        "zone_id",
+        "zone_kind",
+        "quality",
+        "coverage",
+        "occluded",
+        "detections",
+        "display",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "ExtractedRule": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "MIN_FACINGS",
+            "REQUIRED_PRODUCT",
+            "REQUIRED_DISPLAY"
+          ]
+        },
+        "zone_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zone_kind": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "SHELF",
+                "DISPLAY"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "min_facings": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "source_quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "kind",
+        "zone_id",
+        "zone_kind",
+        "product_id",
+        "min_facings",
+        "source_page",
+        "source_quote"
+      ],
+      "additionalProperties": false
+    },
+    "PolicyExtraction": {
+      "type": "object",
+      "properties": {
+        "media_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtractedRule"
+          },
+          "minItems": 0,
+          "maxItems": 30
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "media_id",
+        "rules",
+        "gaps"
+      ],
+      "additionalProperties": false
+    },
+    "ProposedClaim": {
+      "type": "object",
+      "properties": {
+        "claim_key": {
+          "type": "string",
+          "pattern": "^c[1-9][0-9]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "OBSERVATION",
+            "POLICY",
+            "METRIC",
+            "HYPOTHESIS"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 1,
+          "maxItems": 30
+        }
+      },
+      "required": [
+        "claim_key",
+        "kind",
+        "text",
+        "evidence_ids"
+      ],
+      "additionalProperties": false
+    },
+    "ProposedAction": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "REPLENISH",
+            "RESTORE_FACINGS",
+            "INSTALL_DISPLAY",
+            "CHECK_STOCK",
+            "REQUEST_SUPPLY",
+            "RETAKE"
+          ]
+        },
+        "rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 30
+        },
+        "claim_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^c[1-9][0-9]*$"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 1,
+          "maxItems": 30
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "required_zone_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+          },
+          "minItems": 0,
+          "maxItems": 10
+        }
+      },
+      "required": [
+        "kind",
+        "rule_ids",
+        "claim_keys",
+        "evidence_ids",
+        "instruction",
+        "required_zone_ids"
+      ],
+      "additionalProperties": false
+    },
+    "AnalysisProposal": {
+      "type": "object",
+      "properties": {
+        "hypothesis": {
+          "type": "string",
+          "enum": [
+            "EXECUTION",
+            "SUPPLY_CONSTRAINT",
+            "UNEXPLAINED_DECLINE",
+            "NO_ISSUE",
+            "INSUFFICIENT_EVIDENCE"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposedClaim"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "hypothesis": {
+                "type": "string",
+                "enum": [
+                  "EXECUTION",
+                  "SUPPLY_CONSTRAINT",
+                  "UNEXPLAINED_DECLINE",
+                  "NO_ISSUE",
+                  "INSUFFICIENT_EVIDENCE"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 800
+              },
+              "evidence_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 30
+              }
+            },
+            "required": [
+              "hypothesis",
+              "reason",
+              "evidence_ids"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 3
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposedAction"
+          },
+          "minItems": 0,
+          "maxItems": 3
+        },
+        "unresolved_questions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "hypothesis",
+        "summary",
+        "claims",
+        "alternatives",
+        "actions",
+        "unresolved_questions"
+      ],
+      "additionalProperties": false
+    },
+    "ProposedCheck": {
+      "type": "object",
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 30
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "rule_id",
+        "result",
+        "evidence_ids",
+        "explanation"
+      ],
+      "additionalProperties": false
+    },
+    "VerificationProposal": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposedCheck"
+          },
+          "minItems": 1,
+          "maxItems": 30
+        },
+        "requested_retakes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "checks",
+        "requested_retakes"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

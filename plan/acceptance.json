@@ -1,0 +1,811 @@
+{
+  "version": "2.0.0",
+  "execution_status": "not_run",
+  "cases": [
+    {
+      "id": "AC01",
+      "requirements": [
+        "R01",
+        "R14",
+        "R15"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An empty local installation and a known Firebase uid",
+      "when": "Bootstrap a workspace and sign in",
+      "then": [
+        "Only workspace and membership records exist.",
+        "Setup UI reports zero business records.",
+        "Restart preserves identity and does not add fixtures."
+      ],
+      "operation_ids": [
+        "getMe",
+        "getWorkspace"
+      ]
+    },
+    {
+      "id": "AC02",
+      "requirements": [
+        "R01"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Two workspaces, each with ADMIN and REP users",
+      "when": "Access foreign IDs and invoke an admin command as a rep",
+      "then": [
+        "No cross-workspace data is returned.",
+        "Foreign resource lookup returns 404; absent membership/admin privilege returns 403.",
+        "Unauthorized requests cause no mutation."
+      ],
+      "operation_ids": [
+        "getStore",
+        "createProduct",
+        "commitImport"
+      ]
+    },
+    {
+      "id": "AC03",
+      "requirements": [
+        "R02"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An empty authorized workspace",
+      "when": "Create a store, distributor and arbitrary products, edit and reload",
+      "then": [
+        "Records persist through restart.",
+        "Store creation creates exactly one backroom.",
+        "Shared distributor stock is not copied to stores.",
+        "No particular SKU/store code is required."
+      ],
+      "operation_ids": [
+        "createStore",
+        "createLocation",
+        "createProduct",
+        "updateStore",
+        "updateProduct"
+      ]
+    },
+    {
+      "id": "AC04",
+      "requirements": [
+        "R02"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Catalog records referenced by policies and reports",
+      "when": "Archive a referenced active product or a store",
+      "then": [
+        "Product archive is rejected while an active policy requires it.",
+        "An archived store cannot start a visit.",
+        "Historic reports still resolve their source references."
+      ],
+      "operation_ids": [
+        "updateProduct",
+        "updateStore",
+        "createVisit"
+      ]
+    },
+    {
+      "id": "AC05",
+      "requirements": [
+        "R03"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Prepared media uploads",
+      "when": "Complete valid, oversize, checksum-mismatched and mis-typed uploads",
+      "then": [
+        "Only validated bytes become READY.",
+        "Type/size/checksum failures are explicit.",
+        "URLs expire and foreign users cannot obtain them.",
+        "Correct media is bound to its visit/product and zone."
+      ],
+      "operation_ids": [
+        "initMedia",
+        "completeMedia",
+        "getMedia"
+      ]
+    },
+    {
+      "id": "AC06",
+      "requirements": [
+        "R04"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "A new catalog and valid sales/stock CSVs",
+      "when": "Validate, inspect results and explicitly commit",
+      "then": [
+        "Validation alone adds no analytical facts.",
+        "Commit makes the entire valid batch visible.",
+        "Units/currency/case normalization match the import contract."
+      ],
+      "operation_ids": [
+        "createImport",
+        "getImport",
+        "commitImport"
+      ]
+    },
+    {
+      "id": "AC07",
+      "requirements": [
+        "R04"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "CSV with one unknown SKU, duplicate key, missing column or invalid number",
+      "when": "Run validation",
+      "then": [
+        "Import is INVALID with row/field errors.",
+        "No facts are committed.",
+        "Correcting the file requires a new upload; no implicit product is created."
+      ],
+      "operation_ids": [
+        "createImport",
+        "getImport"
+      ]
+    },
+    {
+      "id": "AC08",
+      "requirements": [
+        "R04",
+        "R08",
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "A committed batch and an existing investigation snapshot",
+      "when": "Retry the commit and then commit a correcting file",
+      "then": [
+        "The same batch/hash is not duplicated.",
+        "Latest keyed revision affects new snapshots only.",
+        "Old investigation evidence and metrics remain unchanged."
+      ],
+      "operation_ids": [
+        "commitImport",
+        "getInvestigation"
+      ]
+    },
+    {
+      "id": "AC09",
+      "requirements": [
+        "R05"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An uploaded agreement and catalog",
+      "when": "Extract proposed rules",
+      "then": [
+        "A draft with page/quote evidence and unresolved gaps is produced.",
+        "No policy becomes approved automatically.",
+        "A manual correction is explicitly marked MANUAL."
+      ],
+      "operation_ids": [
+        "createPromotion",
+        "extractPolicy",
+        "getPromotion"
+      ]
+    },
+    {
+      "id": "AC10",
+      "requirements": [
+        "R05",
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Two admins reading the same draft version",
+      "when": "Both approve different revisions",
+      "then": [
+        "Exactly one current-version approval succeeds.",
+        "The stale approval returns 409.",
+        "Approved versions and their rules remain immutable."
+      ],
+      "operation_ids": [
+        "approvePolicy",
+        "listPolicyVersions"
+      ]
+    },
+    {
+      "id": "AC11",
+      "requirements": [
+        "R06"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An active store",
+      "when": "Create an open visit, edit notes and finalize before media",
+      "then": [
+        "Visit and media IDs are persisted and related correctly.",
+        "Media from another store or visit cannot be submitted.",
+        "Refreshing restores the same visit."
+      ],
+      "operation_ids": [
+        "createVisit",
+        "updateVisit",
+        "getVisit"
+      ]
+    },
+    {
+      "id": "AC12",
+      "requirements": [
+        "R07",
+        "R08"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Imported data, an approved policy and ready visit images with arbitrary IDs",
+      "when": "Start and finish an investigation",
+      "then": [
+        "Tools read repository data and the captured batch/policy/media versions.",
+        "Job progress corresponds to actual stages.",
+        "Proposal contains a hypothesis, evidence-linked claims, alternatives and no more than three tasks."
+      ],
+      "operation_ids": [
+        "createInvestigation",
+        "getJob",
+        "getInvestigation"
+      ]
+    },
+    {
+      "id": "AC13",
+      "requirements": [
+        "R07",
+        "R08"
+      ],
+      "layer": "unit",
+      "status": "planned",
+      "given": "Missing sales rows, stale stock or a partial image zone",
+      "when": "Calculate metrics and analyze evidence",
+      "then": [
+        "Missing is not zero and out-of-view is not absent.",
+        "Unavailable metrics are null with reasons.",
+        "Unknown backroom stock yields a check request, not asserted replenishability."
+      ],
+      "operation_ids": [
+        "getStoreHealth",
+        "getInvestigation"
+      ]
+    },
+    {
+      "id": "AC14",
+      "requirements": [
+        "R08"
+      ],
+      "layer": "unit",
+      "status": "planned",
+      "given": "Small factory-generated complete windows and eligible/ineligible peers",
+      "when": "Compute all commercial metrics",
+      "then": [
+        "Decimal results follow peer_gap_v1 with one final HALF_UP rounding.",
+        "Fewer than three eligible peers and zero denominators return null.",
+        "Peer cohort excludes focal store and mismatched retailer/region/format/promotion/currency."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC15",
+      "requirements": [
+        "R08"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "A model proposal with good, invented and cross-scope evidence IDs",
+      "when": "Validate and retrieve claims/evidence",
+      "then": [
+        "Invented/out-of-scope references are rejected.",
+        "Accepted claims resolve to immutable PDF/image/row locators.",
+        "Metric text cannot conflict with the computed Metrics DTO."
+      ],
+      "operation_ids": [
+        "getEvidence",
+        "listEvidence"
+      ]
+    },
+    {
+      "id": "AC16",
+      "requirements": [
+        "R09",
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "A current proposed plan",
+      "when": "Accept twice with the same key, then change key/body or submit a stale version",
+      "then": [
+        "Exactly one action set is created.",
+        "Same key/body replays the original response.",
+        "Changed body or stale version returns 409.",
+        "Claimed completion cannot set VERIFIED or RESOLVED."
+      ],
+      "operation_ids": [
+        "acceptInvestigation",
+        "updateAction"
+      ]
+    },
+    {
+      "id": "AC17",
+      "requirements": [
+        "R10"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An accepted plan and clear new evidence satisfying every frozen rule",
+      "when": "Run verification",
+      "then": [
+        "Every rule is checked once.",
+        "Code derives PASS.",
+        "Actions, visit closure and saved report update once atomically."
+      ],
+      "operation_ids": [
+        "verifyInvestigation",
+        "getVerification",
+        "getReport"
+      ]
+    },
+    {
+      "id": "AC18",
+      "requirements": [
+        "R10"
+      ],
+      "layer": "unit",
+      "status": "planned",
+      "given": "Partial fixes, no display view, occlusion, or ambiguous product identity",
+      "when": "Verify the rules",
+      "then": [
+        "Any unknown yields INCONCLUSIVE; other aggregates follow the contract.",
+        "No false PASS or visit closure occurs.",
+        "Response identifies remaining work or a specific retake."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC19",
+      "requirements": [
+        "R03",
+        "R10"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Old, reused, future-dated or incorrectly bound after media",
+      "when": "Submit verification",
+      "then": [
+        "Replay/timestamp/scope checks reject ineligible evidence.",
+        "Metadata checks are not represented as proof of physical authenticity."
+      ],
+      "operation_ids": [
+        "verifyInvestigation"
+      ]
+    },
+    {
+      "id": "AC20",
+      "requirements": [
+        "R09",
+        "R10",
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Concurrent accept/verify commands and duplicate worker delivery",
+      "when": "Race the operations",
+      "then": [
+        "Only the current plan can close.",
+        "No duplicate actions/reports occur.",
+        "Lease fencing prevents an expired worker from writing terminal state."
+      ],
+      "operation_ids": [
+        "acceptInvestigation",
+        "verifyInvestigation"
+      ]
+    },
+    {
+      "id": "AC21",
+      "requirements": [
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "A persisted job with failed dispatch or a crash after a checkpoint/commit",
+      "when": "Restart, drain outbox and deliver duplicates",
+      "then": [
+        "Job remains discoverable after disconnect/restart.",
+        "Outbox re-enqueues safely.",
+        "Committed imports are reconciled without duplicate facts.",
+        "A model call may repeat, but final business writes do not."
+      ],
+      "operation_ids": [
+        "getJob",
+        "getJobEvents"
+      ]
+    },
+    {
+      "id": "AC22",
+      "requirements": [
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Provider timeout, quota failure and exhausted budgets",
+      "when": "Run and retry a job",
+      "then": [
+        "Attempts and costs are recorded.",
+        "Permanent errors do not retry indefinitely.",
+        "Failure returns an explicit incomplete/needs-work result, never fabricated success."
+      ],
+      "operation_ids": [
+        "retryJob",
+        "getJob"
+      ]
+    },
+    {
+      "id": "AC23",
+      "requirements": [
+        "R11",
+        "R15"
+      ],
+      "layer": "e2e",
+      "status": "planned",
+      "given": "A workspace with no stores or commercial data",
+      "when": "Use every setup/management route",
+      "then": [
+        "Useful empty states and creation/import actions exist.",
+        "No sample dashboard values appear.",
+        "Missing, zero, stale and loading states are visibly distinct."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC24",
+      "requirements": [
+        "R11"
+      ],
+      "layer": "e2e",
+      "status": "planned",
+      "given": "The backend modules integrated with the generated web client",
+      "when": "Complete setup and rep workflow at desktop and 375 px widths, including refresh",
+      "then": [
+        "All required routes use live API state.",
+        "The user can recover validation/conflict/inconclusive errors.",
+        "Evidence navigation and saved reports work with keyboard and phone layout."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC25",
+      "requirements": [
+        "R13"
+      ],
+      "layer": "contract",
+      "status": "planned",
+      "given": "The canonical OpenAPI and AI schemas",
+      "when": "Generate types and validate request/response examples plus real handlers",
+      "then": [
+        "No unexplained contract drift or duplicate shadow DTOs.",
+        "Unknown fields, malformed IDs and illegal enum values fail validation.",
+        "Clients understand null and error envelopes."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC26",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Local and cloud configurations",
+      "when": "Start cloud mode with test providers/emulator settings and local mode without demo seed",
+      "then": [
+        "Cloud mode refuses stub/emulator configuration.",
+        "Local mode is labeled accurately.",
+        "Runtime imports contain no demo fixtures/evaluation labels.",
+        "An empty local start succeeds without a seed."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC27",
+      "requirements": [
+        "R04",
+        "R08",
+        "R14"
+      ],
+      "layer": "cloud",
+      "status": "planned",
+      "given": "The same small dataset in local analytics and disposable BigQuery adapters",
+      "when": "Run import correction, coverage, freshness and metric queries",
+      "then": [
+        "Results and null/error semantics match.",
+        "Cloud import transaction and authorization checks pass.",
+        "Cloud data is isolated from production and cleaned only via an explicit disposable-target command."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC28",
+      "requirements": [
+        "R07",
+        "R10",
+        "R13"
+      ],
+      "layer": "live-ai",
+      "status": "planned",
+      "given": "Frozen 20-case holdout and recorded model settings",
+      "when": "Run three repeats and baseline comparisons",
+      "then": [
+        "Publish actual label counts and evidence support.",
+        "Meet diagnosis/false-resolution criteria or record an explicit blocked/reduced-scope release.",
+        "No test-double run or edited holdout is substituted for live evaluation."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC29",
+      "requirements": [
+        "R01",
+        "R12",
+        "R14"
+      ],
+      "layer": "cloud",
+      "status": "planned",
+      "given": "An authorized empty development project",
+      "when": "Apply deployment configuration, bootstrap and exercise jobs/media",
+      "then": [
+        "Services, indexes, authentication and private worker work from repeatable instructions.",
+        "No business records are preloaded.",
+        "Logs expose correlation/errors without secrets.",
+        "Restart/outbox recovery works in the deployed environment."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC30",
+      "requirements": [
+        "R15"
+      ],
+      "layer": "optional",
+      "status": "planned",
+      "given": "A complete core MVP and an explicit target workspace",
+      "when": "Run optional seed-demo twice, then load differently named data",
+      "then": [
+        "Seed uses normal services/imports and is idempotent.",
+        "No runtime code depends on its values.",
+        "Regression factories work without the demo seed."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC31",
+      "requirements": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R14",
+        "R15"
+      ],
+      "layer": "e2e",
+      "status": "planned",
+      "given": "A fresh workspace unrelated to demo identifiers",
+      "when": "Follow the README to load inputs and complete the entire workflow",
+      "then": [
+        "A user can populate the app through its interfaces without direct database edits.",
+        "The investigation and report reflect those inputs.",
+        "The repository includes actual local/cloud/live acceptance evidence and limitations."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC32",
+      "requirements": [
+        "R07",
+        "R10",
+        "R13"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "PDF, visit note or image text trying to override tools/policy",
+      "when": "Run extraction/investigation/verification",
+      "then": [
+        "Source text is treated as data, not authority.",
+        "No arbitrary URL/SQL, state mutation or expanded access occurs.",
+        "Citations still reference eligible evidence."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC33",
+      "requirements": [
+        "R07",
+        "R10",
+        "R12",
+        "R13"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Invalid model JSON, unknown products, duplicate checks and unsupported PASS",
+      "when": "Validate output and attempt one repair",
+      "then": [
+        "Only supported provider schema conversion is sent.",
+        "Strict application and semantic validation still runs.",
+        "A second invalid output ends incomplete without closing the case."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC34",
+      "requirements": [
+        "R05",
+        "R09",
+        "R10",
+        "R12"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "An accepted plan whose approved policy is replaced or archived",
+      "when": "Accept or verify its stale version",
+      "then": [
+        "Return 409 STALE_POLICY and require a new investigation.",
+        "No obsolete plan closes current work.",
+        "Existing resolved reports remain historical and readable."
+      ],
+      "operation_ids": [
+        "approvePolicy",
+        "updatePromotion",
+        "acceptInvestigation",
+        "verifyInvestigation"
+      ]
+    },
+    {
+      "id": "AC35",
+      "requirements": [
+        "R02",
+        "R07"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Policies referencing too many, archived or unknown products",
+      "when": "Approve/start an investigation",
+      "then": [
+        "Catalog constraints produce actionable errors.",
+        "No silent reference truncation or hardcoded SKU fallback occurs."
+      ],
+      "operation_ids": [
+        "approvePolicy",
+        "createInvestigation"
+      ]
+    },
+    {
+      "id": "AC36",
+      "requirements": [
+        "R13",
+        "R14"
+      ],
+      "layer": "spec",
+      "status": "planned",
+      "given": "Canonical schemas and an empty implementation scaffold",
+      "when": "Pin dependencies, run full schema validators and generate types",
+      "then": [
+        "Schema examples and references validate.",
+        "Generation is deterministic and drift is detected.",
+        "No real-handler or live-provider acceptance is claimed yet."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC37",
+      "requirements": [
+        "R01",
+        "R03",
+        "R12",
+        "R14",
+        "R15"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Empty emulators and the core ports/services with a test-only worker handler",
+      "when": "Exercise identity scope, repository transactions, blob primitives, outbox dispatch, lease fencing and restart",
+      "then": [
+        "Membership/role checks deny invalid scope.",
+        "State and outbox persist and duplicate delivery cannot duplicate the test effect.",
+        "Blob primitives verify byte/hash constraints.",
+        "No catalog/import/AI endpoint or business seed is required for this foundation gate."
+      ],
+      "operation_ids": [
+        "getMe",
+        "getWorkspace",
+        "getJob",
+        "getJobEvents"
+      ]
+    },
+    {
+      "id": "AC38",
+      "requirements": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R11"
+      ],
+      "layer": "component",
+      "status": "planned",
+      "given": "Generated client and contract-shaped component inputs, including empty and invalid states",
+      "when": "Render and operate management screens with explicitly isolated API doubles",
+      "then": [
+        "Requests conform to the frozen contract.",
+        "Empty/loading/validation/conflict states and accessible controls work.",
+        "Tests identify mocks and do not claim connected backend acceptance."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC39",
+      "requirements": [
+        "R07",
+        "R08",
+        "R13"
+      ],
+      "layer": "integration",
+      "status": "planned",
+      "given": "Model gateway and tool ports with deterministic test responses",
+      "when": "Extract images/PDFs, synthesize evidence-bound proposals and validate malformed/injection responses",
+      "then": [
+        "Model and tool schemas, scope and allowed-call limits are enforced.",
+        "Arbitrary product IDs work and ungrounded references are rejected.",
+        "No policy approval, action acceptance or verified-resolution claim is possible at this layer.",
+        "A separate live provider probe is reported honestly when credentials exist."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC40",
+      "requirements": [
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11"
+      ],
+      "layer": "e2e",
+      "status": "planned",
+      "given": "Integrated catalog, imports, policies and investigation services; verifier contract fixed",
+      "when": "Complete actual management and investigation/acceptance flow and render verification/report components",
+      "then": [
+        "Setup through plan acceptance uses real integrated services.",
+        "Verification components are explicitly contract-tested until T09 integrates.",
+        "Full verification/browser acceptance AC24 and AC31 remain pending for T10/T14."
+      ],
+      "operation_ids": []
+    },
+    {
+      "id": "AC41",
+      "requirements": [
+        "R01",
+        "R12",
+        "R14"
+      ],
+      "layer": "cloud",
+      "status": "planned",
+      "given": "An explicitly authorized empty cloud development project and T01 foundation",
+      "when": "Deploy infrastructure, health/auth endpoints and a test-only queue/worker smoke handler",
+      "then": [
+        "Private worker IAM, outbox schedule, indexes, bucket and dataset exist reproducibly.",
+        "No business fixtures are created.",
+        "Health/auth/dispatch smoke checks pass; complete application acceptance AC29 remains pending for T12."
+      ],
+      "operation_ids": []
+    }
+  ]
+}

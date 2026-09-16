@@ -1,0 +1,148 @@
+{
+  "version": "2.0.0",
+  "machines": {
+    "Job": {
+      "initial": "QUEUED",
+      "terminal": [
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "transitions": {
+        "QUEUED": [
+          "RUNNING",
+          "FAILED"
+        ],
+        "RUNNING": [
+          "SUCCEEDED",
+          "RETRY_WAIT",
+          "FAILED"
+        ],
+        "RETRY_WAIT": [
+          "RUNNING",
+          "FAILED"
+        ],
+        "SUCCEEDED": [],
+        "FAILED": []
+      }
+    },
+    "Media": {
+      "initial": "PENDING_UPLOAD",
+      "terminal": [
+        "READY",
+        "REJECTED"
+      ],
+      "transitions": {
+        "PENDING_UPLOAD": [
+          "READY",
+          "REJECTED"
+        ],
+        "READY": [],
+        "REJECTED": []
+      }
+    },
+    "Import": {
+      "initial": "VALIDATING",
+      "terminal": [
+        "INVALID",
+        "COMMITTED",
+        "FAILED"
+      ],
+      "transitions": {
+        "VALIDATING": [
+          "VALIDATED",
+          "INVALID",
+          "FAILED"
+        ],
+        "VALIDATED": [
+          "COMMITTING"
+        ],
+        "COMMITTING": [
+          "COMMITTED",
+          "INVALID",
+          "FAILED"
+        ],
+        "COMMITTED": [],
+        "INVALID": [],
+        "FAILED": []
+      }
+    },
+    "Investigation": {
+      "initial": "QUEUED",
+      "terminal": [
+        "RESOLVED",
+        "NO_ACTION",
+        "DISMISSED"
+      ],
+      "transitions": {
+        "QUEUED": [
+          "INVESTIGATING",
+          "INCOMPLETE"
+        ],
+        "INVESTIGATING": [
+          "PROPOSED",
+          "NO_ACTION",
+          "INCOMPLETE"
+        ],
+        "PROPOSED": [
+          "ACCEPTED",
+          "DISMISSED"
+        ],
+        "ACCEPTED": [
+          "VERIFYING",
+          "DISMISSED"
+        ],
+        "VERIFYING": [
+          "RESOLVED",
+          "NEEDS_WORK"
+        ],
+        "NEEDS_WORK": [
+          "VERIFYING",
+          "DISMISSED"
+        ],
+        "INCOMPLETE": [
+          "QUEUED",
+          "DISMISSED"
+        ],
+        "RESOLVED": [],
+        "NO_ACTION": [],
+        "DISMISSED": []
+      }
+    },
+    "Visit": {
+      "initial": "OPEN",
+      "terminal": [
+        "CLOSED"
+      ],
+      "transitions": {
+        "OPEN": [
+          "CLOSED"
+        ],
+        "CLOSED": []
+      }
+    },
+    "Action": {
+      "initial": "OPEN",
+      "terminal": [
+        "VERIFIED"
+      ],
+      "transitions": {
+        "OPEN": [
+          "CLAIMED_DONE",
+          "VERIFIED"
+        ],
+        "CLAIMED_DONE": [
+          "OPEN",
+          "VERIFIED"
+        ],
+        "VERIFIED": []
+      }
+    }
+  },
+  "rules": [
+    "Business outcomes are separate from job success.",
+    "Retries create a new Job; terminal Job records never return to QUEUED.",
+    "A failed verification job returns its investigation to NEEDS_WORK without an aggregate PASS.",
+    "A fully supported NO_ACTION closes the visit with a NO_ACTION report, never a verified-work claim.",
+    "Only service transactions can apply transitions; models cannot write state."
+  ]
+}
