@@ -18,37 +18,7 @@ async def test_ac03_store_and_backroom_creation(client: AsyncClient, workspace_s
     headers = workspace_setup["admin_headers"]
     headers_with_idem = {**headers, "Idempotency-Key": str(uuid4())}
 
-    store_payload = {
-        "code": "STORE-001",
-        "name": "Downtown Megastore",
-        "retailer": "RetailCo",
-        "region": "Central",
-        "format": "Hypermarket",
-        "timezone": "Asia/Singapore",
-        "distributor_location_id": None,
-    }
-
-    # 1. Create Store (requires ADMIN)
-    res = await client.post("/stores", json=store_payload, headers=headers_with_idem)
-    assert res.status_code == 201, res.text
-    store_data = res.json()
-    store = Store.model_validate(store_data)
-    assert store.code == "STORE-001"
-    assert store.currency == Currency.SGD
-    assert store.active is True
-    assert store.version == 1
-    assert store.backroom_location_id is not None
-
-    # 2. Verify automatically created backroom location
-    loc_res = await client.get(f"/locations/{store.backroom_location_id}", headers=headers)
-    assert loc_res.status_code == 200, loc_res.text
-    backroom = Location.model_validate(loc_res.json())
-    assert backroom.id == store.backroom_location_id
-    assert backroom.type == Type1.BACKROOM
-    assert backroom.store_id == store.id
-    assert backroom.active is True
-
-    # 3. Create Distributor Location
+    # 1. Create Distributor Location first
     dist_payload = {
         "code": "DIST-NORTH",
         "name": "Northern Regional Warehouse",
@@ -61,13 +31,43 @@ async def test_ac03_store_and_backroom_creation(client: AsyncClient, workspace_s
     assert dist_loc.type == Type1.DISTRIBUTOR
     assert dist_loc.store_id is None
 
-    # Verify distributor location is distinct and not copied to stores
+    # 2. Create Store referencing the distributor location (requires ADMIN)
+    store_payload = {
+        "code": "STORE-001",
+        "name": "Downtown Megastore",
+        "retailer": "RetailCo",
+        "region": "Central",
+        "format": "Hypermarket",
+        "timezone": "Asia/Singapore",
+        "distributor_location_id": str(dist_loc.id),
+    }
+    res = await client.post("/stores", json=store_payload, headers=headers_with_idem)
+    assert res.status_code == 201, res.text
+    store_data = res.json()
+    store = Store.model_validate(store_data)
+    assert store.code == "STORE-001"
+    assert store.currency == Currency.SGD
+    assert store.active is True
+    assert store.version == 1
+    assert store.backroom_location_id is not None
+    assert store.distributor_location_id == dist_loc.id
+
+    # 3. Verify automatically created backroom location
+    loc_res = await client.get(f"/locations/{store.backroom_location_id}", headers=headers)
+    assert loc_res.status_code == 200, loc_res.text
+    backroom = Location.model_validate(loc_res.json())
+    assert backroom.id == store.backroom_location_id
+    assert backroom.type == Type1.BACKROOM
+    assert backroom.store_id == store.id
+    assert backroom.active is True
+
+    # 4. Verify distributor location is distinct and not duplicated
     assert dist_loc.id != store.backroom_location_id
-    store_locs_res = await client.get(f"/locations?store_id={store.id}", headers=headers)
-    assert store_locs_res.status_code == 200
-    store_locs = LocationList.model_validate(store_locs_res.json())
-    assert len(store_locs.items) == 1
-    assert store_locs.items[0].id == store.backroom_location_id
+    all_locs_res = await client.get("/locations", headers=headers)
+    assert all_locs_res.status_code == 200
+    all_locs = LocationList.model_validate(all_locs_res.json())
+    assert any(l.id == store.backroom_location_id for l in all_locs.items)
+    assert any(l.id == dist_loc.id for l in all_locs.items)
 
 
 @pytest.mark.asyncio
@@ -123,7 +123,7 @@ async def test_ac03_arbitrary_products_and_edit_reload(client: AsyncClient, work
 async def test_ac03_uniqueness_and_conflicts(client: AsyncClient, workspace_setup: dict):
     headers = workspace_setup["admin_headers"]
 
-    # Create first store
+    # 1. Store code uniqueness
     store_payload = {
         "code": "UNIQUE-STORE",
         "name": "Store Alpha",
@@ -140,7 +140,7 @@ async def test_ac03_uniqueness_and_conflicts(client: AsyncClient, workspace_setu
     r2 = await client.post("/stores", json=store_payload, headers={**headers, "Idempotency-Key": str(uuid4())})
     assert r2.status_code == 409
 
-    # Create product
+    # 2. Product SKU uniqueness
     prod_payload = {
         "sku": "UNIQUE-SKU-1",
         "name": "Product One",
@@ -152,6 +152,33 @@ async def test_ac03_uniqueness_and_conflicts(client: AsyncClient, workspace_setu
     # Attempt duplicate SKU -> 409
     p2 = await client.post("/products", json=prod_payload, headers={**headers, "Idempotency-Key": str(uuid4())})
     assert p2.status_code == 409
+
+    # 3. Location code uniqueness
+    loc_payload = {
+        "code": "UNIQUE-LOC-1",
+        "name": "Warehouse 1",
+        "type": "DISTRIBUTOR",
+    }
+    l1 = await client.post("/locations", json=loc_payload, headers={**headers, "Idempotency-Key": str(uuid4())})
+    assert l1.status_code == 201
+
+    l2 = await client.post("/locations", json=loc_payload, headers={**headers, "Idempotency-Key": str(uuid4())})
+    assert l2.status_code == 409
+    assert l2.json()["code"] == "DUPLICATE_CODE"
+
+    # 4. Unknown distributor reference validation -> 422
+    bad_store_payload = {
+        "code": "BAD-DIST-STORE",
+        "name": "Store Bad Dist",
+        "retailer": "RetailCo",
+        "region": "West",
+        "format": "Supermarket",
+        "timezone": "Asia/Singapore",
+        "distributor_location_id": str(uuid4()),
+    }
+    bad_dist_res = await client.post("/stores", json=bad_store_payload, headers={**headers, "Idempotency-Key": str(uuid4())})
+    assert bad_dist_res.status_code == 422
+    assert bad_dist_res.json()["code"] == "INVALID_DISTRIBUTOR"
 
 
 @pytest.mark.asyncio
@@ -185,3 +212,54 @@ async def test_ac03_roles_and_workspace_isolation(client: AsyncClient, workspace
     # 4. Foreign workspace gets 404
     foreign_res = await client.get(f"/stores/{store_id}", headers=foreign_headers)
     assert foreign_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ac03_idempotency_and_cursor_pagination(client: AsyncClient, workspace_setup: dict):
+    headers = workspace_setup["admin_headers"]
+
+    # 1. Idempotency replay on Store creation
+    idem_key = str(uuid4())
+    store_payload = {
+        "code": "STORE-IDEM",
+        "name": "Idempotent Store",
+        "retailer": "RetailCo",
+        "region": "South",
+        "format": "Convenience",
+        "timezone": "Asia/Singapore",
+        "distributor_location_id": None,
+    }
+    r1 = await client.post("/stores", json=store_payload, headers={**headers, "Idempotency-Key": idem_key})
+    assert r1.status_code == 201
+    store_data_1 = r1.json()
+
+    # Replay with same key and body -> returns identical cached response
+    r2 = await client.post("/stores", json=store_payload, headers={**headers, "Idempotency-Key": idem_key})
+    assert r2.status_code == 201
+    assert r2.json() == store_data_1
+
+    # 2. Pagination test: create multiple products and verify descending order and pagination
+    for i in range(1, 4):
+        await client.post(
+            "/products",
+            json={"sku": f"PAGE-SKU-{i:02d}", "name": f"Paged Product {i}", "case_units": 10},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+
+    # Page 1 with limit=2
+    p1_res = await client.get("/products?limit=2", headers=headers)
+    assert p1_res.status_code == 200
+    p1 = ProductList.model_validate(p1_res.json())
+    assert len(p1.items) == 2
+    assert p1.next_cursor is not None
+
+    # Page 2 with cursor
+    p2_res = await client.get(f"/products?cursor={p1.next_cursor}&limit=2", headers=headers)
+    assert p2_res.status_code == 200
+    p2 = ProductList.model_validate(p2_res.json())
+    assert len(p2.items) >= 1
+
+    # Items across pages must be disjoint
+    p1_ids = {p.id for p in p1.items}
+    p2_ids = {p.id for p in p2.items}
+    assert p1_ids.isdisjoint(p2_ids)

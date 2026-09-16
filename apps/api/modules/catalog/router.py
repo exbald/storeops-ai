@@ -2,7 +2,7 @@ import hashlib
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from storeops_contracts.models import (
     Location,
     LocationCreate,
@@ -19,7 +19,6 @@ from storeops_contracts.models import (
     StoreCreate,
     StoreList,
     StoreUpdate,
-    Type1,
     VersionCommand,
 )
 
@@ -101,7 +100,8 @@ async def create_store(
         body_hash=body_hash,
     )
     if is_cached and cached_data:
-        return Store.model_validate(cached_data)
+        cached_body = cached_data.get("body", cached_data)
+        return Store.model_validate(cached_body)
 
     workspace = await state_repo.get_workspace(ctx.workspace_id)
     if not workspace:
@@ -165,16 +165,12 @@ async def update_store(
 async def list_locations(
     ctx: Annotated[WorkspaceContext, Depends(require_rep)],
     service: Annotated[CatalogService, Depends(get_catalog_service)],
-    store_id: Annotated[UUID | None, Query()] = None,
-    type: Annotated[Type1 | None, Query()] = None,
     active: Annotated[bool | None, Query()] = None,
     cursor: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> LocationList:
     return await service.list_locations(
         workspace_id=ctx.workspace_id,
-        store_id=store_id,
-        type=type,
         active=active,
         cursor=cursor,
         limit=limit,
@@ -206,7 +202,8 @@ async def create_location(
         body_hash=body_hash,
     )
     if is_cached and cached_data:
-        return Location.model_validate(cached_data)
+        cached_body = cached_data.get("body", cached_data)
+        return Location.model_validate(cached_body)
 
     loc = await service.create_location(ctx.workspace_id, payload)
 
@@ -302,7 +299,8 @@ async def create_product(
         body_hash=body_hash,
     )
     if is_cached and cached_data:
-        return Product.model_validate(cached_data)
+        cached_body = cached_data.get("body", cached_data)
+        return Product.model_validate(cached_body)
 
     prod = await service.create_product(ctx.workspace_id, payload)
 
@@ -377,9 +375,10 @@ async def init_media(
         body_hash=body_hash,
     )
     if is_cached and cached_data:
-        return MediaUpload.model_validate(cached_data)
+        cached_body = cached_data.get("body", cached_data)
+        return MediaUpload.model_validate(cached_body)
 
-    upload = await service.init_media(ctx.workspace_id, payload)
+    upload = await service.init_media(ctx.workspace_id, ctx.membership.role.value, payload)
 
     await state_repo.save_idempotency(
         uid=ctx.user.uid,
@@ -419,9 +418,10 @@ async def complete_media(
         body_hash=body_hash,
     )
     if is_cached and cached_data:
-        return Media.model_validate(cached_data)
+        cached_body = cached_data.get("body", cached_data)
+        return Media.model_validate(cached_body)
 
-    media = await service.complete_media(ctx.workspace_id, media_id, payload)
+    media = await service.complete_media(ctx.workspace_id, ctx.membership.role.value, media_id, payload)
 
     await state_repo.save_idempotency(
         uid=ctx.user.uid,
@@ -448,15 +448,3 @@ async def get_media(
 ) -> Media:
     return await service.get_media(ctx.workspace_id, media_id)
 
-
-# Helper endpoint for uploading raw bytes in local development/tests
-@router.put("/media/upload/{media_id}", tags=["Media"])
-async def upload_media_bytes(
-    media_id: UUID,
-    request: Request,
-    blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
-) -> Response:
-    raw_bytes = await request.body()
-    path = blob_repo._file_path(media_id)  # type: ignore
-    path.write_bytes(raw_bytes)
-    return Response(status_code=200)

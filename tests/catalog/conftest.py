@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
 from storeops_contracts.models import Currency, Workspace
 
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
@@ -21,8 +23,20 @@ from apps.api.modules.catalog.repository import InMemoryCatalogRepository
 from apps.api.modules.catalog.router import router as catalog_router
 
 # Mount catalog router on main app for catalog testing if not present
-if not any(route.path == "/stores" for route in app.routes):
+if not any(getattr(route, "path", None) == "/stores" for route in app.routes):
     app.include_router(catalog_router)
+
+# Mount test-only byte upload simulation route for testing blob storage
+if not any(getattr(route, "path", None) == "/media/upload/{media_id}" for route in app.routes):
+    @app.put("/media/upload/{media_id}")
+    async def _test_upload_media_bytes(request: StarletteRequest) -> StarletteResponse:
+        from apps.api.modules.catalog.dependencies import get_blob_repository
+        media_id = request.path_params["media_id"]
+        raw = await request.body()
+        blob_repo = get_blob_repository()
+        path = blob_repo._file_path(media_id)
+        path.write_bytes(raw)
+        return StarletteResponse(status_code=200)
 
 
 @pytest.fixture

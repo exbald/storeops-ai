@@ -142,7 +142,7 @@ class InMemoryCatalogRepository(CatalogRepository):
             s for (ws, _), s in self._stores.items()
             if ws == workspace_id and (active is None or s.active == active)
         ]
-        stores.sort(key=lambda s: s.created_at)
+        stores.sort(key=lambda s: (s.created_at, str(s.id)), reverse=True)
         start_idx = 0
         if cursor:
             for idx, s in enumerate(stores):
@@ -188,7 +188,7 @@ class InMemoryCatalogRepository(CatalogRepository):
             and (type is None or loc.type == type)
             and (active is None or loc.active == active)
         ]
-        locs.sort(key=lambda l: l.created_at)
+        locs.sort(key=lambda l: (l.created_at, str(l.id)), reverse=True)
         start_idx = 0
         if cursor:
             for idx, l in enumerate(locs):
@@ -229,7 +229,7 @@ class InMemoryCatalogRepository(CatalogRepository):
             p for (ws, _), p in self._products.items()
             if ws == workspace_id and (active is None or p.active == active)
         ]
-        prods.sort(key=lambda p: p.created_at)
+        prods.sort(key=lambda p: (p.created_at, str(p.id)), reverse=True)
         start_idx = 0
         if cursor:
             for idx, p in enumerate(prods):

@@ -1,9 +1,11 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from pydantic import AnyUrl
 from storeops_contracts.models import (
     Error,
+    Kind,
     Location,
     LocationCreate,
     LocationList,
@@ -12,6 +14,7 @@ from storeops_contracts.models import (
     MediaInit,
     MediaUpload,
     Method,
+    MimeType,
     Product,
     ProductCreate,
     ProductList,
@@ -41,6 +44,15 @@ class CatalogService:
         existing = await self.repo.get_store_by_code(workspace.id, data.code)
         if existing:
             raise ApiError(status_code=409, code="DUPLICATE_CODE", message=f"Store code {data.code} already exists")
+
+        if data.distributor_location_id:
+            dist_loc = await self.repo.get_location(workspace.id, data.distributor_location_id)
+            if not dist_loc or dist_loc.type != Type1.DISTRIBUTOR:
+                raise ApiError(
+                    status_code=422,
+                    code="INVALID_DISTRIBUTOR",
+                    message=f"Distributor location {data.distributor_location_id} not found or not a distributor",
+                )
 
         now = datetime.now(UTC)
         store_id = uuid4()
@@ -93,6 +105,15 @@ class CatalogService:
                 f"Version conflict: expected {data.expected_version}, got {existing.version}"
             )
 
+        if data.distributor_location_id:
+            dist_loc = await self.repo.get_location(workspace_id, data.distributor_location_id)
+            if not dist_loc or dist_loc.type != Type1.DISTRIBUTOR:
+                raise ApiError(
+                    status_code=422,
+                    code="INVALID_DISTRIBUTOR",
+                    message=f"Distributor location {data.distributor_location_id} not found or not a distributor",
+                )
+
         now = datetime.now(UTC)
         updated = Store(
             id=existing.id,
@@ -144,7 +165,7 @@ class CatalogService:
             updated_at=now,
             code=data.code,
             name=data.name,
-            type=Type1.DISTRIBUTOR,
+            type=Type1(data.type.value),
             store_id=None,
             active=True,
         )
@@ -278,7 +299,92 @@ class CatalogService:
         )
         return ProductList(items=items, next_cursor=next_cursor)
 
-    async def init_media(self, workspace_id: UUID, data: MediaInit) -> MediaUpload:
+    async def init_media(
+        self, workspace_id: UUID, role: str, data: MediaInit
+    ) -> MediaUpload:
+        # RBAC per SEMANTICS: Reference/agreement/import creation and completion require ADMIN
+        if data.kind in (Kind.PRODUCT_REFERENCE, Kind.AGREEMENT, Kind.IMPORT) and role != "ADMIN":
+            raise ApiError(
+                status_code=403,
+                code="ROLE_DENIED",
+                message=f"Only ADMIN can create {data.kind.value} media",
+            )
+
+        # Media binding rules per SEMANTICS.md:
+        if data.kind == Kind.PRODUCT_REFERENCE:
+            if not data.product_id:
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message="PRODUCT_REFERENCE requires product_id",
+                )
+            prod = await self.repo.get_product(workspace_id, data.product_id)
+            if not prod:
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"Product {data.product_id} not found in workspace",
+                )
+            if any(x is not None for x in (data.store_id, data.visit_id, data.zone_id, data.zone_kind, data.captured_at)):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message="Inapplicable fields must be null for PRODUCT_REFERENCE",
+                )
+            if data.mime_type not in (MimeType.image_jpeg, MimeType.image_png):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message="PRODUCT_REFERENCE requires image/jpeg or image/png",
+                )
+
+        elif data.kind in (Kind.AGREEMENT, Kind.IMPORT):
+            if any(x is not None for x in (data.store_id, data.visit_id, data.product_id, data.zone_id, data.zone_kind, data.captured_at)):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"Inapplicable fields must be null for {data.kind.value}",
+                )
+            if data.kind == Kind.AGREEMENT and data.mime_type not in (MimeType.application_pdf, MimeType.image_jpeg, MimeType.image_png):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message="AGREEMENT requires application/pdf, image/jpeg, or image/png",
+                )
+            if data.kind == Kind.IMPORT and data.mime_type != MimeType.text_csv:
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message="IMPORT requires text/csv",
+                )
+
+        elif data.kind in (Kind.VISIT_BEFORE, Kind.VISIT_AFTER):
+            if not all([data.store_id, data.visit_id, data.zone_id, data.zone_kind, data.captured_at]):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"{data.kind.value} requires store_id, visit_id, zone_id, zone_kind, and captured_at",
+                )
+            store = await self.repo.get_store(workspace_id, data.store_id)
+            if not store:
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"Store {data.store_id} not found in workspace",
+                )
+            if data.product_id is not None:
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"product_id must be null for {data.kind.value}",
+                )
+            if data.mime_type not in (MimeType.image_jpeg, MimeType.image_png):
+                raise ApiError(
+                    status_code=422,
+                    code="VALIDATION_ERROR",
+                    message=f"{data.kind.value} requires image/jpeg or image/png",
+                )
+
         now = datetime.now(UTC)
         media_id = uuid4()
         media = Media(
@@ -320,11 +426,19 @@ class CatalogService:
         )
 
     async def complete_media(
-        self, workspace_id: UUID, media_id: UUID, data: VersionCommand
+        self, workspace_id: UUID, role: str, media_id: UUID, data: VersionCommand
     ) -> Media:
         media = await self.repo.get_media(workspace_id, media_id)
         if not media:
             raise ApiError(status_code=404, code="NOT_FOUND", message="Media not found")
+
+        # RBAC per SEMANTICS: Reference/agreement/import completion requires ADMIN
+        if media.kind in (Kind.PRODUCT_REFERENCE, Kind.AGREEMENT, Kind.IMPORT) and role != "ADMIN":
+            raise ApiError(
+                status_code=403,
+                code="ROLE_DENIED",
+                message=f"Only ADMIN can complete {media.kind.value} media",
+            )
 
         if media.version != data.expected_version:
             raise VersionConflictError(
@@ -333,11 +447,13 @@ class CatalogService:
 
         now = datetime.now(UTC)
         try:
-            sha256, size, dims = await self.blob_repo.finalize_upload(media_id)
-            if sha256 != media.original_sha256:
+            # Check checksum on raw uploaded bytes before normalization
+            raw_bytes = await self.blob_repo.read_bytes(media_id)
+            raw_sha256 = hashlib.sha256(raw_bytes).hexdigest()
+            if raw_sha256 != media.original_sha256:
                 rejection = Error(
                     code="CHECKSUM_MISMATCH",
-                    message=f"Checksum mismatch: expected {media.original_sha256}, got {sha256}",
+                    message=f"Checksum mismatch: expected {media.original_sha256}, got {raw_sha256}",
                     request_id=uuid4(),
                     details=[],
                 )
@@ -350,12 +466,13 @@ class CatalogService:
                     }
                 )
             else:
+                normalized_sha256, size, dims = await self.blob_repo.finalize_upload(media_id)
                 updated = media.model_copy(
                     update={
                         "version": media.version + 1,
                         "updated_at": now,
                         "status": Status1.READY,
-                        "normalized_sha256": sha256,
+                        "normalized_sha256": normalized_sha256,
                         "byte_size": size,
                         "width": dims[0] if dims else None,
                         "height": dims[1] if dims else None,
