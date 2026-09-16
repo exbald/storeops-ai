@@ -113,7 +113,7 @@
     {
       "id": "T02",
       "title": "Catalog, locations and validated media",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T01"
