@@ -322,8 +322,13 @@ def validate_csv_content(
             # Observed at
             parsed_obs: datetime | None = None
             try:
-                # Handle ISO 8601 timestamps
-                parsed_obs = datetime.fromisoformat(obs_str)
+                # Handle ISO 8601 timestamps (normalize trailing Z for Python 3.11 compatibility)
+                normalized_obs = (
+                    obs_str.removesuffix("Z") + "+00:00"
+                    if obs_str.endswith("Z")
+                    else obs_str
+                )
+                parsed_obs = datetime.fromisoformat(normalized_obs)
                 if parsed_obs.tzinfo is None:
                     parsed_obs = parsed_obs.replace(tzinfo=UTC)
                 if parsed_obs > max_inventory_time:

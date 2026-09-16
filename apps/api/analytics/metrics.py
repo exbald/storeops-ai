@@ -55,6 +55,9 @@ async def compute_peer_gap_metrics(
     )
 
     # Check complete 7-day coverage for focal store
+    # Known limitation / deferral: specs/05-ai.md:50-51 specifies "complete product/date coverage".
+    # For slice T03, coverage checks distinct calendar dates across all SKUs.
+    # Per-product coverage matrix validation is deferred pending T04.
     prior_days = {row["business_date"] for row in focal_prior_rows}
     current_days = {row["business_date"] for row in focal_current_rows}
 
@@ -82,7 +85,10 @@ async def compute_peer_gap_metrics(
         sales_delta = format_decimal(delta_dec)
 
     # 2. Identify and filter peer cohort
-    # Peers must share workspace, currency, retailer, region, format, and complete windows
+    # Peers must share workspace, currency, retailer, region, format, and complete windows.
+    # Known limitation / deferral: specs/05-ai.md:55-56 specifies peer cohorts sharing "promotion".
+    # The Store contract model (contracts/openapi.json) does not define a promotion field.
+    # Promotion matching is deferred pending T04 (vendor agreement policies).
     candidate_peers = [
         p
         for p in all_stores

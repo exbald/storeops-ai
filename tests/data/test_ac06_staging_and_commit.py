@@ -169,3 +169,32 @@ async def test_ac06_bom_encoded_csv_supported(client, data_setup):
     imp = get_res.json()
     assert imp["status"] == "VALIDATED"
     assert imp["error_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ac06_inventory_observed_at_z_and_offset_timestamps(client, data_setup):
+    admin_headers = data_setup["admin_headers"]
+    upload_csv = data_setup["upload_csv_media"]
+
+    # Verify both Z-suffix and explicit offset parsing (Python 3.11 compatibility)
+    inv_csv = (
+        b"location_code,sku,observed_at,quantity,unit\n"
+        b"LOC-STR01,SKU-COKE-330,2026-09-10T12:00:00Z,10,UNIT\n"
+        b"LOC-STR01,SKU-SPRITE-330,2026-09-10T20:00:00+08:00,5,UNIT\n"
+    )
+
+    media_id = await upload_csv(inv_csv)
+    create_res = await client.post(
+        "/imports",
+        json={"kind": "INVENTORY", "media_id": media_id},
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert create_res.status_code == 202
+    import_id = create_res.json()["resource_id"]
+
+    get_res = await client.get(f"/imports/{import_id}", headers=admin_headers)
+    assert get_res.status_code == 200
+    imp = get_res.json()
+    assert imp["status"] == "VALIDATED"
+    assert imp["error_count"] == 0
+    assert imp["row_count"] == 2
