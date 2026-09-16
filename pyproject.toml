@@ -13,9 +13,11 @@ dependencies = [
     "httpx>=0.27.0",
     "python-multipart>=0.0.9",
     "pytz>=2024.1",
+    "pillow>=10.0.0",
     "datamodel-code-generator[http]>=0.25.0",
     "openapi-spec-validator>=0.7.1",
     "jsonschema>=4.21.0",
+    "storeops-contracts",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +30,10 @@ dev = [
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+storeops-contracts = { path = "packages/contracts/python", editable = true }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".", "packages/contracts/python"]
 asyncio_mode = "auto"

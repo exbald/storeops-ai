@@ -1,84 +1,101 @@
-# StoreOps specification driven MVP build
+# StoreOps · Specification-Driven MVP
 
-Version 2.0 · 16 September 2026
+StoreOps is an autonomous retail operations intelligence platform. Starting from an empty deployment, StoreOps ingests retail store catalogs, sales/stock CSVs, extracts merchandising rules from vendor agreements via Gemini AI, investigates audit visits, and verifies shelf compliance using multimodal computer vision.
 
-This is an implementation specification for coding agents. The target is a working
-StoreOps application that starts with no business records, accepts data through its
-own management and import workflows, and completes an investigation, approved action
-plan and visual verification. Demonstration data is an optional later addition.
+---
 
-**Status:** specification and contract pack, not an implemented application. The only
-executable utility supplied here checks the pack itself. Task and acceptance statuses
-are all planned. No application tests or live Gemini evaluations have been run.
+## 🚀 Quick Start for Developers & Coding Agents
 
-## What changed from the competition PRD
+Follow these steps when cloning this repository to a new development machine:
 
-The earlier document remains useful for the pitch and demonstration narrative. This
-pack supersedes its implementation choices wherever they conflict. It adds the missing
-application lifecycle: empty-state setup, catalog management, CSV ingestion, policy
-review, durable jobs, user roles, versioned contracts and incremental acceptance gates.
+### 1. Prerequisites
+Ensure the following runtimes and tools are installed:
+* **Python 3.11+** with [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+* **Node.js 20+** with [`pnpm`](https://pnpm.io/) (`corepack enable && corepack prepare pnpm@latest --activate`)
+* *(Optional for live cloud deployment)*: `gcloud`, `firebase-tools`, `terraform`
 
-- Stores, SKUs, rules, dates and image references are data, never application constants.
-- The database is created through migrations; seeding is a separate command.
-- Small test factories and representative images are used while building each slice.
-- A larger demo dataset can be imported after the core MVP passes acceptance.
-- Parallel agents work within explicit boundaries after shared contracts are frozen.
+### 2. Environment Setup
+Copy the example environment configuration:
+```bash
+cp .env.example .env.local
+```
 
-## Read and build in this order
+Populate the required secrets in `.env.local`:
+* **`GEMINI_API_KEY`**: Obtain from [Google AI Studio](https://aistudio.google.com/app/apikey).
+* **`GOOGLE_APPLICATION_CREDENTIALS`**: Path to your Google Cloud service account JSON key (e.g. `./service-account.json`).
 
-| File | Purpose |
-|---|---|
-| [AGENTS.md](AGENTS.md) | Binding working procedure for implementation agents |
-| [Product](specs/00-product.md) | Required behavior and the definition of a complete MVP |
-| [Architecture](specs/01-architecture.md) | Components, local/cloud profiles and adapter interfaces |
-| [Domain](specs/02-domain.md) | Persistent entities, ownership, imports and temporal semantics |
-| [Workflows](specs/03-workflows.md) | State transitions, atomicity, retries and concurrent edits |
-| [UI](specs/04-ui.md) | Screens, empty states, actions and error behavior |
-| [AI](specs/05-ai.md) | Two agents, tools, observations, grounding and model settings |
-| [Quality](specs/06-quality.md) | Tests during implementation, live evaluations and release gates |
-| [Delivery](specs/07-delivery.md) | Commands to implement, deployment and operational acceptance |
-| [Parallel work](specs/08-parallel.md) | Dependency waves, code ownership and integration protocol |
-| [OpenAPI](contracts/openapi.json) | Versioned public HTTP contract and request/response schemas |
-| [Tool contracts](contracts/tools.json) | Typed agent inputs and evidence-returning tools |
-| [AI schemas](contracts/ai-output.schema.json) | Model output contracts, separate from public API responses |
-| [Wire semantics](contracts/SEMANTICS.md) | Cross-field validation and retry rules |
-| [Imports](contracts/imports.json) | Exact CSV columns, field rules and correction behavior |
-| [State machines](contracts/states.json) | Allowed application and job transitions |
-| [Tasks](plan/tasks.json) | Assignable work packets with dependencies and acceptance IDs |
-| [Acceptance](plan/acceptance.json) | Given/when/then cases linked to requirements and owners |
-| [Decisions](DECISIONS.md) | Deliberate changes and their reasons |
+> [!NOTE]
+> `.env`, `.env.local`, and all `*service-account*.json` / `*credentials*.json` files are strictly gitignored to guarantee zero credential leakage to public repositories.
 
-The Markdown specifications explain semantics; the contract files define wire shapes.
-If they disagree, record a contract issue and resolve it before dependent code. Neither
-an agent's convenience nor a passing mock is authority to change intended behavior.
+### 3. Install Dependencies
+```bash
+# Install Python backend dependencies into virtual environment
+uv sync
 
-## Starting an implementation session
+# Install Node.js frontend workspace dependencies
+pnpm install
+```
 
-Extract this directory as the repository root, initialize Git, and give the coordinating
-agent [prompts/orchestrator.md](prompts/orchestrator.md). It begins with T00, then T01.
-The ready tasks in `plan/tasks.json` determine when parallel work is possible.
-
-Run the supplied check before editing the pack:
-
+### 4. Verify Spec & Run Tests
+Verify specification integrity and link graph:
 ```bash
 python3 tools/verify_spec.py
 ```
 
-The application commands listed in the delivery spec must be implemented during T00
-and T01; they do not exist yet. The coordinator records exact runtime/dependency
-versions and resolves genuine implementation blockers without expanding product scope.
+Run test suite:
+```bash
+uv run pytest
+```
 
-## Complete means usable without the demo
+### 5. Start Local Development Server
+```bash
+# Start FastAPI backend
+uv run uvicorn apps.api.main:app --reload --port 8000
+```
 
-From an empty deployment, an authorized user can create stores and products, upload
-references, import sales and stock, approve rules from a real uploaded agreement,
-record a visit, investigate, accept tasks, upload new evidence and receive a saved
-verification report. Missing data is an explicit state. Refreshing the browser or
-retrying a job does not lose work or duplicate writes.
+---
 
-The build also has automated regression tests, cloud adapter checks and a live Gemini
-evaluation report. A green test-double run alone is not proof of an AI-capable MVP.
+## 🤖 Instructions for AI Coding Agents
 
-The first optional demo seed is T13. It is deliberately not a prerequisite for T14,
-the core MVP completion gate. Budget and timing estimates in the earlier competition
-PRD should be revised after T00/T01 expose actual implementation effort.
+When continuing development on a new machine:
+1. **Read Core Protocols First**: Read [AGENTS.md](AGENTS.md), [specs/01-architecture.md](specs/01-architecture.md), and [contracts/openapi.json](contracts/openapi.json).
+2. **Consult the Wave Plan**:
+   * Current milestone: **Wave 1 (`T01`)** in [`prompts/waves/wave-01-t01.md`](prompts/waves/wave-01-t01.md).
+   * Task definitions and acceptance criteria: [`plan/tasks.json`](plan/tasks.json) and [`plan/acceptance.json`](plan/acceptance.json).
+3. **Design Tokens & UI**:
+   * Pre-generated Stitch design tokens are locked in [`DESIGN.md`](DESIGN.md). Use these directly for `T05` without re-generating tokens.
+4. **Autonomous Cloud Integration**:
+   * Profile `LOCAL`: Runs in-memory state repository, local file system storage, and DuckDB analytics without external network calls.
+   * Profile `CLOUD`: Connects to live Firestore, Cloud Storage, BigQuery, and Cloud Run using `service-account.json` credentials.
+
+---
+
+## 📚 Specification & Contract Directory
+
+| File | Purpose |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Binding working procedure for implementation agents |
+| [DESIGN.md](DESIGN.md) | Dual-mode Obsidian & Ice Glass design tokens and UI specs |
+| [specs/00-product.md](specs/00-product.md) | Required behavior and the definition of a complete MVP |
+| [specs/01-architecture.md](specs/01-architecture.md) | Components, local/cloud profiles and adapter interfaces |
+| [specs/02-domain.md](specs/02-domain.md) | Persistent entities, ownership, imports and temporal semantics |
+| [specs/03-workflows.md](specs/03-workflows.md) | State transitions, atomicity, retries and concurrent edits |
+| [specs/04-ui.md](specs/04-ui.md) | Screens, empty states, actions and error behavior |
+| [specs/05-ai.md](specs/05-ai.md) | Two agents, tools, observations, grounding and model settings |
+| [specs/06-quality.md](specs/06-quality.md) | Tests during implementation, live evaluations and release gates |
+| [specs/07-delivery.md](specs/07-delivery.md) | Commands to implement, deployment and operational acceptance |
+| [specs/08-parallel.md](specs/08-parallel.md) | Dependency waves, code ownership and integration protocol |
+| [contracts/openapi.json](contracts/openapi.json) | Versioned public HTTP contract and request/response schemas |
+| [contracts/tools.json](contracts/tools.json) | Typed agent inputs and evidence-returning tools |
+| [contracts/ai-output.schema.json](contracts/ai-output.schema.json) | Model output contracts, separate from public API responses |
+| [contracts/SEMANTICS.md](contracts/SEMANTICS.md) | Cross-field validation and retry rules |
+| [contracts/imports.json](contracts/imports.json) | Exact CSV columns, field rules and correction behavior |
+| [contracts/states.json](contracts/states.json) | Allowed application and job transitions |
+| [plan/tasks.json](plan/tasks.json) | Assignable work packets with dependencies and acceptance IDs |
+| [plan/acceptance.json](plan/acceptance.json) | Given/when/then cases linked to requirements and owners |
+| [DECISIONS.md](DECISIONS.md) | Deliberate architectural changes and records |
+
+---
+
+## 🛡️ License
+Private and confidential. Developed for StoreOps MVP.

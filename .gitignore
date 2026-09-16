@@ -26,6 +26,12 @@ htmlcov/
 .env.local
 .env.*.local
 !.env.example
+*.pem
+*.key
+*credentials*.json
+*service-account*.json
+firebase-adminsdk*.json
+gen-lang-client*.json
 
 # IDE & OS
 .DS_Store
