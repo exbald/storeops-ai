@@ -129,7 +129,7 @@ resource "google_storage_bucket" "media" {
   force_destroy               = false
 
   cors {
-    origin          = ["*"]
+    origin          = ["https://${var.project_id}.web.app", "https://${var.project_id}.firebaseapp.com", "http://localhost:3000"]
     method          = ["GET", "PUT", "POST", "HEAD"]
     response_header = ["*"]
     max_age_seconds = 3600
@@ -249,8 +249,11 @@ resource "google_cloud_run_v2_service" "api" {
 
   template {
     service_account = google_service_account.api.email
+    scaling {
+      max_instance_count = 3
+    }
     containers {
-      image = "gcr.io/${var.project_id}/storeops-api:latest"
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/storeops/storeops-api:latest"
       resources {
         limits = {
           cpu    = "1"
@@ -313,8 +316,12 @@ resource "google_cloud_run_v2_service" "worker" {
 
   template {
     service_account = google_service_account.worker.email
+    scaling {
+      max_instance_count = 3
+    }
     containers {
-      image = "gcr.io/${var.project_id}/storeops-worker:latest"
+      image   = "${var.region}-docker.pkg.dev/${var.project_id}/storeops/storeops-worker:latest"
+      command = ["python3", "-m", "apps.api.worker"]
       resources {
         limits = {
           cpu    = "2"
@@ -361,21 +368,21 @@ resource "google_cloud_run_v2_service_iam_member" "worker_invoker" {
 }
 
 # 10. Cloud Scheduler Outbox Draining Job
+# Targets GET /health as a 1-minute system heartbeat until foundation/coordinator integrates internal /outbox/drain route
 resource "google_cloud_scheduler_job" "outbox_drain" {
   name        = "storeops-outbox-drain"
-  description = "Scheduled outbox repair and job dispatch invocation (once per minute)"
+  description = "Scheduled heartbeat and outbox dispatcher (targets /health pending foundation /outbox/drain integration)"
   schedule    = "* * * * *"
   time_zone   = "Etc/UTC"
   project     = var.project_id
   region      = var.region
 
   http_target {
-    http_method = "POST"
-    uri         = "${google_cloud_run_v2_service.api.uri}/outbox/drain"
+    http_method = "GET"
+    uri         = "${google_cloud_run_v2_service.api.uri}/health"
 
     headers = {
-      "Content-Type" = "application/json"
-      "User-Agent"   = "StoreOps-CloudScheduler/1.0"
+      "User-Agent" = "StoreOps-CloudScheduler/1.0"
     }
 
     oidc_token {

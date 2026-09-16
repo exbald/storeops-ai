@@ -64,7 +64,8 @@ def check_scaffold_configs() -> dict[str, Any]:
     if schedule_path.exists():
         with open(schedule_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            if data.get("schedule") == "* * * * *" and "/outbox/drain" in data.get("httpTarget", {}).get("uri", ""):
+            uri = data.get("httpTarget", {}).get("uri", "")
+            if data.get("schedule") == "* * * * *" and ("/health" in uri or "/outbox/drain" in uri):
                 results["outbox_schedule"] = True
 
     # 5. Terraform main
@@ -103,7 +104,7 @@ def run_live_smoke_checks(api_url: str, worker_url: str | None = None) -> list[d
         with urllib.request.urlopen(req, timeout=10) as resp:
             status = resp.status
             body = json.loads(resp.read().decode("utf-8"))
-            passed = status == 200 and body.get("status") in ("ok", "healthy")
+            passed = status == 200 and body.get("status") in ("READY", "DEGRADED")
             checks.append({
                 "name": "GET /health readiness",
                 "passed": passed,

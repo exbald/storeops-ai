@@ -138,22 +138,31 @@ python3 scripts/deploy/smoke_check.py
 ```
 
 ### Verification Criteria (AC-41):
-- `GET /health` returns HTTP 200 `{"status": "ok"}`.
+- `GET /health` returns HTTP 200 with `status: "READY"` (or `"DEGRADED"`) conforming to `contracts/openapi.json`.
 - Unauthenticated requests to protected API endpoints return HTTP 401.
 - Direct public requests to the Worker service return HTTP 401 or 403 (enforcing private internal ingress).
 - Zero sample business records exist in the database (bootstrap is clean).
 
 ---
 
-## 6. Budget & Quotas
+## 6. Budget, Quotas & Cost Controls
 
-1. **Development Budget**:
-   A budget of **$100.00 USD** is configured with notification thresholds at 50%, 80%, and 100%.
-2. **Quotas & Cost Controls**:
-   - Model calls: Rate limited to 10 requests per second.
-   - Max concurrent dispatches in Cloud Tasks: 5.
-   - BigQuery query byte limit: 100 MB per analytical query.
-   - Cloud Run container scaling: `max-instances=3` for development.
+1. **Development Budget Configuration ($100.00 USD)**:
+   Google Cloud Billing budgets require billing-account level permissions. Configure the budget manually in the Cloud Console or via the Billing Budgets CLI:
+   ```bash
+   gcloud billing budgets create \
+     --billing-account="<YOUR_BILLING_ACCOUNT_ID>" \
+     --display-name="StoreOps Development Budget" \
+     --budget-amount=100.00USD \
+     --threshold-rule=percent=0.5 \
+     --threshold-rule=percent=0.8 \
+     --threshold-rule=percent=1.0
+   ```
+2. **Resource Scaling Caps**:
+   - **Cloud Run Concurrency & Scaling**: Enforced via `--max-instances=3` in `deploy.sh` and `scaling { max_instance_count = 3 }` in `infra/main.tf` to prevent accidental cost overrun.
+   - **Cloud Tasks Rate Limiting**: `max-dispatches-per-second=10`, `max-concurrent-dispatches=5`.
+   - **Outbox Drain Heartbeat**: Cloud Scheduler triggers `GET /health` once per minute (`* * * * *`) as a liveness heartbeat pending foundation/coordinator integration of the internal `/outbox/drain` route.
+   - **Foundation Model**: `gemini-3.8-flash` per `specs/01-architecture.md:83`.
 
 ---
 

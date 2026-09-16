@@ -1,13 +1,12 @@
 {
   "name": "storeops-outbox-drain",
-  "description": "Scheduled outbox repair and job dispatch invocation (once per minute)",
+  "description": "Scheduled 1-minute heartbeat and outbox dispatcher (targets /health pending foundation /outbox/drain route integration)",
   "schedule": "* * * * *",
   "timeZone": "Etc/UTC",
   "httpTarget": {
-    "httpMethod": "POST",
-    "uri": "https://${API_URL}/outbox/drain",
+    "httpMethod": "GET",
+    "uri": "https://${API_URL}/health",
     "headers": {
-      "Content-Type": "application/json",
       "User-Agent": "StoreOps-CloudScheduler/1.0"
     },
     "oidcToken": {

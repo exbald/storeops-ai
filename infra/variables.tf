@@ -28,7 +28,7 @@ variable "budget_alert_email" {
 }
 
 variable "gemini_model_id" {
-  description = "Primary Gemini model ID"
+  description = "Primary Gemini model ID per specs/01-architecture.md"
   type        = string
-  default     = "gemini-2.5-flash"
+  default     = "gemini-3.8-flash"
 }

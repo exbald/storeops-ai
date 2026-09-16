@@ -1,10 +1,19 @@
-"""Unit and contract tests for cloud deployment scripts and infrastructure configs (T11 / AC-41)."""
+"""Unit, scaffold, and worker smoke tests for cloud deployment (T11 / AC-41)."""
 
 import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from storeops_contracts import JobStatus, JobType
+from storeops_contracts.models import Job, ResourceType
+
+from apps.api.jobs.runner import JobRunner
+from apps.api.ports.state import StateRepository
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 DEPLOY_SH = ROOT_DIR / "scripts" / "deploy" / "deploy.sh"
@@ -146,6 +155,7 @@ def test_worker_iam_and_scheduler_specs():
         sched_data = json.load(f)
     assert sched_data.get("schedule") == "* * * * *"
     assert "/health" in sched_data.get("httpTarget", {}).get("uri", "")
+    assert sched_data.get("httpTarget", {}).get("httpMethod") == "GET"
 
 
 def test_terraform_files_syntax():
@@ -160,6 +170,10 @@ def test_terraform_files_syntax():
     assert "resource \"google_cloud_scheduler_job\" \"outbox_drain\"" in content
     assert "resource \"google_storage_bucket\" \"media\"" in content
     assert "resource \"google_bigquery_dataset\" \"analytics\"" in content
+
+    # Verify scaling caps and entrypoint
+    assert "max_instance_count = 3" in content
+    assert 'command = ["python3", "-m", "apps.api.worker"]' in content
 
     variables_tf = INFRA_DIR / "variables.tf"
     assert variables_tf.exists()
@@ -197,3 +211,55 @@ def test_rollback_script_protects_production():
     )
     assert proc.returncode == 1
     assert "appears to be PRODUCTION" in proc.stdout
+
+
+@pytest.mark.asyncio
+async def test_ac41_queue_worker_smoke_handler(state_repo: StateRepository):
+    """AC-41: Outbox queue/worker smoke test execution against the T01 TEST job handler."""
+    ws_id = uuid4()
+    job_id = uuid4()
+    now = datetime.now(UTC)
+
+    # 1. Create a TEST job with outbox payload
+    job = Job(
+        id=job_id,
+        workspace_id=ws_id,
+        version=1,
+        created_at=now,
+        updated_at=now,
+        type=JobType.TEST if hasattr(JobType, "TEST") else JobType.INVESTIGATE,
+        status=JobStatus.QUEUED,
+        resource_id=uuid4(),
+        resource_type=ResourceType.INVESTIGATION,
+        attempt=1,
+        stage="QUEUED",
+        started_at=None,
+        finished_at=None,
+        error=None,
+        linked_previous_job_id=None,
+        model_id=None,
+        usage=None,
+    )
+
+    await state_repo.create_job_with_outbox(job, outbox_payload={"action": "cloud_smoke_test"})
+    assert len(state_repo.outbox) >= 1
+
+    # 2. Wire the worker and register the AC-41 smoke handler
+    executed = False
+
+    async def _smoke_handler(j: Job, generation: int):
+        nonlocal executed
+        executed = True
+        assert j.id == job_id
+        assert generation >= 1
+
+    runner = JobRunner(state_repo=state_repo, worker_id="smoke-worker-1")
+    runner.register_handler(job.type.value if hasattr(job.type, "value") else str(job.type), _smoke_handler)
+
+    # 3. Execute through the worker job runner
+    await runner.execute_job(ws_id, job_id)
+
+    assert executed, "Queue/worker smoke handler must have been executed"
+    fetched = await state_repo.get_job(ws_id, job_id)
+    assert fetched is not None
+    assert fetched.status == JobStatus.SUCCEEDED

@@ -34,6 +34,12 @@ if [ -z "${PROJECT_ID}" ]; then
     exit 1
 fi
 
+if [[ "${PROJECT_ID}" =~ prod|production ]] && [ "${STOREOPS_ALLOW_PROD:-0}" != "1" ]; then
+    echo -e "${RED}ERROR: Target project '${PROJECT_ID}' appears to be PRODUCTION.${NC}"
+    echo "To execute rollback on production, explicitly set STOREOPS_ALLOW_PROD=1."
+    exit 1
+fi
+
 REGION="${STOREOPS_REGION:-asia-southeast1}"
 
 rollback_service() {

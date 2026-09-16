@@ -140,7 +140,7 @@ if [ -f "${ROOT_DIR}/infra/bigquery_schema.sql" ]; then
     bq query --use_legacy_sql=false \
         --dataset_id="${BQ_DATASET}" \
         --project_id="${PROJECT_ID}" \
-        "$(cat "${ROOT_DIR}/infra/bigquery_schema.sql")" || true
+        "$(cat "${ROOT_DIR}/infra/bigquery_schema.sql")"
 fi
 
 # 8. Firestore Database and Indexes
@@ -149,7 +149,7 @@ if [ -f "${ROOT_DIR}/infra/firestore.indexes.json" ]; then
     echo "Deploying Firestore composite indexes..."
     gcloud firestore indexes composite create \
         --project="${PROJECT_ID}" \
-        --config-file="${ROOT_DIR}/infra/firestore.indexes.json" 2>/dev/null || true
+        --config-file="${ROOT_DIR}/infra/firestore.indexes.json"
 fi
 
 # 9. Cloud Tasks Queue
@@ -167,11 +167,12 @@ fi
 echo -e "\n${BLUE}Step 7: Deploying Private Cloud Run Worker...${NC}"
 gcloud run deploy storeops-worker \
     --source="${ROOT_DIR}" \
-    --command="uvicorn,apps.api.worker:app,--host,0.0.0.0,--port,8001" \
+    --command="python3,-m,apps.api.worker" \
     --service-account="${WORKER_SA}" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --ingress="internal" \
+    --max-instances=3 \
     --no-allow-unauthenticated \
     --set-env-vars="APP_ENV=${APP_ENV},DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET}" \
     --quiet
@@ -195,6 +196,7 @@ gcloud run deploy storeops-api \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --ingress="all" \
+    --max-instances=3 \
     --allow-unauthenticated \
     --set-env-vars="APP_ENV=${APP_ENV},DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA}" \
     --quiet
@@ -202,12 +204,13 @@ gcloud run deploy storeops-api \
 API_URL="$(gcloud run services describe storeops-api --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
 
 # 12. Cloud Scheduler Outbox Draining Job
+# Configured to ping GET /health as a 1-minute heartbeat until foundation /outbox/drain route is integrated
 echo -e "\n${BLUE}Step 9: Configuring Cloud Scheduler outbox drain job...${NC}"
 if ! gcloud scheduler jobs describe "storeops-outbox-drain" --location="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
     gcloud scheduler jobs create http "storeops-outbox-drain" \
         --schedule="* * * * *" \
-        --uri="${API_URL}/outbox/drain" \
-        --http-method=POST \
+        --uri="${API_URL}/health" \
+        --http-method=GET \
         --oidc-service-account-email="${INVOKER_SA}" \
         --oidc-token-audience="${API_URL}" \
         --location="${REGION}" \

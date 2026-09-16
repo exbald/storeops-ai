@@ -7,4 +7,4 @@ region             = "asia-southeast1"
 app_env            = "dev"
 budget_amount      = 100.0
 budget_alert_email = "devops-alerts@example.com"
-gemini_model_id    = "gemini-2.5-flash"
+gemini_model_id    = "gemini-3.8-flash"
