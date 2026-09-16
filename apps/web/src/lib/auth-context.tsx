@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadMe();
-  }, [workspaceId]);
+  }, []);
 
   const switchWorkspace = useCallback((newId: string) => {
     setWorkspaceId(newId);

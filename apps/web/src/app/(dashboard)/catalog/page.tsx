@@ -37,6 +37,8 @@ export default function CatalogPage() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
 
+  const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -84,9 +86,10 @@ export default function CatalogPage() {
 
     try {
       if (editingProduct) {
-        await apiClient.updateStore(editingProduct.id, {
+        await apiClient.updateProduct(editingProduct.id, {
           expected_version: editingProduct.version,
           name: productName,
+          case_units: productCaseUnits,
         });
       } else {
         await apiClient.createProduct({
@@ -96,6 +99,10 @@ export default function CatalogPage() {
         });
       }
       setIsProductModalOpen(false);
+      setGlobalAlert({
+        type: "success",
+        message: editingProduct ? "Product updated successfully." : "Product created successfully.",
+      });
       await loadData();
     } catch (err: unknown) {
       if (err instanceof VersionConflictError) {
@@ -111,23 +118,42 @@ export default function CatalogPage() {
   };
 
   const handleArchiveProduct = async (product: Product) => {
+    setGlobalAlert(null);
     // Archive safeguard: Check if product is in an active promotion
     const isReferencedInActivePolicy = promotions.some(
       (promo) => !promo.archived && promo.active_version_id !== null
     );
 
     if (isReferencedInActivePolicy && product.active) {
-      alert(
-        `Safeguard Notice: Product "${product.name}" (${product.sku}) cannot be archived while active merchandising promotions reference the product catalog. Archive or conclude active promotions first.`
-      );
+      setGlobalAlert({
+        type: "error",
+        message: `Safeguard Notice: Product "${product.name}" (${product.sku}) cannot be archived while active merchandising promotions reference the product catalog. Archive or conclude active promotions first.`,
+      });
       return;
     }
 
     try {
-      // In double mode / API, update active status
-      alert(`Product ${product.sku} status toggled.`);
-    } catch {
-      alert("Failed to toggle product status.");
+      await apiClient.updateProduct(product.id, {
+        expected_version: product.version,
+        active: !product.active,
+      });
+      setGlobalAlert({
+        type: "success",
+        message: `Product ${product.sku} status updated successfully.`,
+      });
+      await loadData();
+    } catch (err: unknown) {
+      if (err instanceof VersionConflictError) {
+        setGlobalAlert({
+          type: "error",
+          message: "Version Conflict: " + err.message + " Please refresh.",
+        });
+      } else {
+        setGlobalAlert({
+          type: "error",
+          message: "Failed to update product: " + (err instanceof Error ? err.message : ""),
+        });
+      }
     }
   };
 
@@ -237,6 +263,27 @@ export default function CatalogPage() {
 
   return (
     <div className="space-y-6">
+      {/* Global accessible feedback banner */}
+      {globalAlert && (
+        <div
+          role={globalAlert.type === "error" ? "alert" : "status"}
+          className={`p-4 rounded-md border text-sm flex items-start justify-between ${
+            globalAlert.type === "error"
+              ? "bg-red-50 border-red-200 text-red-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
+          <div>{globalAlert.message}</div>
+          <button
+            onClick={() => setGlobalAlert(null)}
+            className="ml-4 font-bold text-xs underline hover:no-underline"
+            aria-label="Dismiss notification"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

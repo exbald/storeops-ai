@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../../lib/auth-context";
 import { apiClient, VersionConflictError } from "../../../lib/api-client";
+import { generateUuid } from "../../../lib/doubles";
 import type { Promotion, Store, Product, Rule } from "@storeops/contracts";
 import { Table, Column } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
@@ -17,6 +18,7 @@ export default function PromotionsPage() {
   const [stores, setStores] = useState<Store[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // New Promotion Modal
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -72,9 +74,14 @@ export default function PromotionsPage() {
         starts_on: startsOn,
         ends_on: endsOn,
         store_ids: selectedStoreIds,
+        agreement_media_id: null,
       });
       setIsCreateOpen(false);
       setPromoName("");
+      setGlobalAlert({
+        type: "success",
+        message: "Promotion draft created successfully.",
+      });
       await loadData();
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -95,11 +102,11 @@ export default function PromotionsPage() {
       if (versionsRes.items.length > 0) {
         setRules(versionsRes.items[0].rules);
       } else {
-        // Mock extracted draft rules from vendor agreement
-        const defaultProd = products[0]?.id || "prd-00000000-0000-0000-0000-000000000001";
+        // Mock extracted draft rules from vendor agreement with valid UUIDs
+        const defaultProd = products[0]?.id || "00000000-0000-0000-0000-000000000031";
         setRules([
           {
-            rule_id: "extracted-rule-1",
+            rule_id: generateUuid(),
             kind: "MIN_FACINGS",
             zone_id: "shelf-eye-level",
             zone_kind: "SHELF",
@@ -107,7 +114,7 @@ export default function PromotionsPage() {
             min_facings: 3,
             source: {
               kind: "DOCUMENT",
-              media_id: "med-agreement-001",
+              media_id: generateUuid(),
               page: 2,
               quote: "Retailer agrees to maintain a minimum of 3 facings on primary display shelf.",
               reviewer_note: null,
@@ -129,10 +136,14 @@ export default function PromotionsPage() {
       const catalogIds = products.map((p) => p.id);
       await apiClient.approvePolicy(activeReviewPromo.id, {
         expected_version: activeReviewPromo.version,
-        catalog_product_ids: catalogIds.length > 0 ? catalogIds : ["prd-00000000-0000-0000-0000-000000000001"],
+        catalog_product_ids: catalogIds.length > 0 ? catalogIds : ["00000000-0000-0000-0000-000000000031"],
         rules: rules,
       });
       setActiveReviewPromo(null);
+      setGlobalAlert({
+        type: "success",
+        message: "Promotion policy approved and locked.",
+      });
       await loadData();
     } catch (err: unknown) {
       if (err instanceof VersionConflictError) {
@@ -204,6 +215,27 @@ export default function PromotionsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Global accessible feedback banner */}
+      {globalAlert && (
+        <div
+          role={globalAlert.type === "error" ? "alert" : "status"}
+          className={`p-4 rounded-md border text-sm flex items-start justify-between ${
+            globalAlert.type === "error"
+              ? "bg-red-50 border-red-200 text-red-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
+          <div>{globalAlert.message}</div>
+          <button
+            onClick={() => setGlobalAlert(null)}
+            className="ml-4 font-bold text-xs underline hover:no-underline"
+            aria-label="Dismiss notification"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

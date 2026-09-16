@@ -25,6 +25,7 @@ export default function StoresPage() {
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   // Form Fields
@@ -130,13 +131,20 @@ export default function StoresPage() {
         expected_version: store.version,
         active: !store.active,
       });
+      setGlobalAlert({
+        type: "success",
+        message: `Store ${store.code} ${store.active ? "archived" : "restored"} successfully.`,
+      });
       await loadData();
     } catch (err: unknown) {
       if (err instanceof VersionConflictError) {
-        alert("Concurrent modification detected: " + err.message + " Refreshing data.");
+        setConflictWarning(err.message);
         await loadData();
       } else {
-        alert("Failed to archive store.");
+        setGlobalAlert({
+          type: "error",
+          message: "Failed to update store status: " + (err instanceof Error ? err.message : "Unknown error"),
+        });
       }
     }
   };
@@ -225,6 +233,27 @@ export default function StoresPage() {
 
   return (
     <div className="space-y-6">
+      {/* Global accessible feedback banner */}
+      {globalAlert && (
+        <div
+          role={globalAlert.type === "error" ? "alert" : "status"}
+          className={`p-4 rounded-md border text-sm flex items-start justify-between ${
+            globalAlert.type === "error"
+              ? "bg-red-50 border-red-200 text-red-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
+          <div>{globalAlert.message}</div>
+          <button
+            onClick={() => setGlobalAlert(null)}
+            className="ml-4 font-bold text-xs underline hover:no-underline"
+            aria-label="Dismiss notification"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

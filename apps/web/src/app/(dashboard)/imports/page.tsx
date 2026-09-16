@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../../lib/auth-context";
 import { apiClient } from "../../../lib/api-client";
+import { generateUuid } from "../../../lib/doubles";
 import { formatFreshness } from "../../../lib/formatters";
 import type { Import } from "@storeops/contracts";
 import { Table, Column } from "../../../components/ui/table";
@@ -15,6 +16,7 @@ export default function ImportsPage() {
   const { isAdmin } = useAuth();
   const [imports, setImports] = useState<Import[]>([]);
   const [loading, setLoading] = useState(true);
+  const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Staged Upload Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -60,19 +62,27 @@ export default function ImportsPage() {
     if (!fileName) return;
 
     setIsUploading(true);
+    setGlobalAlert(null);
     try {
-      // In contract flow, media is created then import staged
+      // In contract flow, media is created then import staged with valid UUID
       const staged = await apiClient.createImport({
         kind: importKind,
-        media_id: "med-staged-" + Date.now(),
+        media_id: generateUuid(),
       });
       setIsModalOpen(false);
       setFileName("");
       setCsvContent("");
+      setGlobalAlert({
+        type: "success",
+        message: `Import staged successfully with ${staged.row_count} rows ready for review.`,
+      });
       await loadImports();
       setInspectingImport(staged);
     } catch (err) {
-      alert("Failed to stage import: " + (err instanceof Error ? err.message : ""));
+      setGlobalAlert({
+        type: "error",
+        message: "Failed to stage import: " + (err instanceof Error ? err.message : "Unknown error"),
+      });
     } finally {
       setIsUploading(false);
     }
@@ -80,12 +90,20 @@ export default function ImportsPage() {
 
   const handleCommit = async (imp: Import) => {
     setIsCommitting(true);
+    setGlobalAlert(null);
     try {
       await apiClient.commitImport(imp.id);
+      setGlobalAlert({
+        type: "success",
+        message: "Import successfully committed to system of record.",
+      });
       await loadImports();
       setInspectingImport(null);
     } catch (err) {
-      alert("Failed to commit import: " + (err instanceof Error ? err.message : ""));
+      setGlobalAlert({
+        type: "error",
+        message: "Failed to commit import: " + (err instanceof Error ? err.message : "Unknown error"),
+      });
     } finally {
       setIsCommitting(false);
     }
@@ -162,6 +180,27 @@ export default function ImportsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Global accessible feedback banner */}
+      {globalAlert && (
+        <div
+          role={globalAlert.type === "error" ? "alert" : "status"}
+          className={`p-4 rounded-md border text-sm flex items-start justify-between ${
+            globalAlert.type === "error"
+              ? "bg-red-50 border-red-200 text-red-800"
+              : "bg-green-50 border-green-200 text-green-800"
+          }`}
+        >
+          <div>{globalAlert.message}</div>
+          <button
+            onClick={() => setGlobalAlert(null)}
+            className="ml-4 font-bold text-xs underline hover:no-underline"
+            aria-label="Dismiss notification"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

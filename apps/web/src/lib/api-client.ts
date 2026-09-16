@@ -1,21 +1,30 @@
 /**
  * Contract-compliant API client for StoreOps web application.
- * Sourced directly from @storeops/contracts.
+ * Sourced directly from @storeops/contracts and contracts/openapi.json.
  *
  * Implements:
  * - Tenant isolation headers: X-Workspace-Id
  * - Auth headers: Authorization: Bearer <token>
- * - Concurrency conflict detection: HTTP 409 VERSION_CONFLICT
+ * - Concurrency conflict detection: HTTP 409 VERSION_CONFLICT -> VersionConflictError
  * - Full type-safety against OpenAPI schemas
+ * - Fail-closed error semantics (no silent success fallback)
+ * - Explicit test double mode with full UUID conformance
  */
 
 import type {
   Store,
+  StoreCreate,
+  StoreUpdate,
   Product,
+  ProductCreate,
+  ProductUpdate,
   Location,
+  LocationCreate,
   Import,
   Promotion,
+  PromotionCreate,
   PolicyVersion,
+  ApprovePolicy,
   Workspace,
   Membership,
   Rule,
@@ -33,6 +42,7 @@ import {
   MOCK_IMPORTS,
   MOCK_PROMOTIONS,
   MOCK_POLICY_VERSIONS,
+  generateUuid,
 } from "./doubles.ts";
 
 export class ApiRequestError extends Error {
@@ -65,11 +75,11 @@ export interface ApiClientConfig {
 
 export class StoreOpsClient {
   private baseUrl: string;
-  private getAuthToken: () => Promise<string | null>;
+  private getAuthToken?: () => Promise<string | null>;
   private getWorkspaceId: () => string | null;
-  private useDoubles: boolean;
+  public readonly useDoubles: boolean;
 
-  // In-memory state for isolated test double operation
+  // In-memory state for isolated test double operation (AC-38)
   private doubleStores: Store[] = [...MOCK_STORES];
   private doubleProducts: Product[] = [...MOCK_PRODUCTS];
   private doubleLocations: Location[] = [...MOCK_LOCATIONS];
@@ -78,15 +88,41 @@ export class StoreOpsClient {
   private doublePolicyVersions: PolicyVersion[] = [...MOCK_POLICY_VERSIONS];
 
   constructor(config: ApiClientConfig = {}) {
-    this.baseUrl = config.baseUrl || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    this.getAuthToken = config.getAuthToken || (async () => "mock-token-admin");
+    const explicitDoubles =
+      config.useDoubles !== undefined
+        ? config.useDoubles
+        : typeof process !== "undefined" && process.env.NEXT_PUBLIC_USE_DOUBLES === "true";
+
+    this.baseUrl =
+      config.baseUrl ||
+      (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_URL || "" : "");
+    this.getAuthToken = config.getAuthToken;
     this.getWorkspaceId = config.getWorkspaceId || (() => DEFAULT_WORKSPACE_ID);
-    this.useDoubles = config.useDoubles ?? (process.env.NEXT_PUBLIC_USE_DOUBLES === "true" || !process.env.NEXT_PUBLIC_API_URL);
+
+    // Fail closed: Doubles are only active when explicitly enabled (config.useDoubles=true or NEXT_PUBLIC_USE_DOUBLES=true).
+    // An unset API URL without explicit doubles enabled throws UNCONFIGURED_BACKEND on request.
+    this.useDoubles = explicitDoubles === true;
   }
 
   private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const token = await this.getAuthToken();
+    if (!this.baseUrl && !this.useDoubles) {
+      throw new ApiRequestError(
+        503,
+        "UNCONFIGURED_BACKEND",
+        "StoreOps API URL is unconfigured (NEXT_PUBLIC_API_URL is missing) and mock doubles are disabled. Real API connection required."
+      );
+    }
+
+    const token = this.getAuthToken ? await this.getAuthToken() : null;
     const workspaceId = this.getWorkspaceId();
+
+    if (!token && !path.startsWith("/health")) {
+      throw new ApiRequestError(
+        401,
+        "UNAUTHENTICATED",
+        "Authentication required: missing token."
+      );
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -96,7 +132,7 @@ export class StoreOpsClient {
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
-    if (workspaceId && !path.startsWith("/me")) {
+    if (workspaceId && !path.startsWith("/me") && !path.startsWith("/health")) {
       headers["X-Workspace-Id"] = workspaceId;
     }
 
@@ -140,7 +176,7 @@ export class StoreOpsClient {
   async getMe(): Promise<{ user_id: string; email: string; memberships: Membership[] }> {
     if (this.useDoubles) {
       return {
-        user_id: "usr-admin-001",
+        user_id: "00000000-0000-0000-0000-000000000009",
         email: "admin@storeops.local",
         memberships: MOCK_MEMBERSHIPS,
       };
@@ -148,11 +184,11 @@ export class StoreOpsClient {
     return this.fetch<{ user_id: string; email: string; memberships: Membership[] }>("/me");
   }
 
-  async getWorkspace(id: string): Promise<Workspace> {
+  async getWorkspace(): Promise<Workspace> {
     if (this.useDoubles) {
-      return { ...MOCK_WORKSPACE, id };
+      return MOCK_WORKSPACE;
     }
-    return this.fetch<Workspace>(`/workspaces/${id}`);
+    return this.fetch<Workspace>("/workspace");
   }
 
   // --- Stores ---
@@ -174,18 +210,10 @@ export class StoreOpsClient {
     return this.fetch<{ items: Store[]; next_cursor: string | null }>(`/stores?${query.toString()}`);
   }
 
-  async createStore(data: {
-    code: string;
-    name: string;
-    retailer: string;
-    region: string;
-    format: string;
-    timezone: string;
-    distributor_location_id?: string | null;
-  }): Promise<Store> {
+  async createStore(data: StoreCreate): Promise<Store> {
     if (this.useDoubles) {
       const newStore: Store = {
-        id: `str-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         code: data.code,
         name: data.name,
@@ -208,7 +236,7 @@ export class StoreOpsClient {
     });
   }
 
-  async updateStore(id: string, data: { expected_version: number; name?: string; active?: boolean }): Promise<Store> {
+  async updateStore(id: string, data: StoreUpdate): Promise<Store> {
     if (this.useDoubles) {
       const idx = this.doubleStores.findIndex((s) => s.id === id);
       if (idx === -1) throw new ApiRequestError(404, "NOT_FOUND", "Store not found");
@@ -245,10 +273,10 @@ export class StoreOpsClient {
     return this.fetch<{ items: Product[]; next_cursor: string | null }>(`/products?${query.toString()}`);
   }
 
-  async createProduct(data: { sku: string; name: string; case_units: number }): Promise<Product> {
+  async createProduct(data: ProductCreate): Promise<Product> {
     if (this.useDoubles) {
       const newProduct: Product = {
-        id: `prd-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         sku: data.sku,
         name: data.name,
@@ -268,6 +296,32 @@ export class StoreOpsClient {
     });
   }
 
+  async updateProduct(id: string, data: ProductUpdate): Promise<Product> {
+    if (this.useDoubles) {
+      const idx = this.doubleProducts.findIndex((p) => p.id === id);
+      if (idx === -1) throw new ApiRequestError(404, "NOT_FOUND", "Product not found");
+      const current = this.doubleProducts[idx];
+      if (current.version !== data.expected_version) {
+        throw new VersionConflictError("Product has been modified concurrently. Expected version mismatch.");
+      }
+      const updated: Product = {
+        ...current,
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.case_units !== undefined ? { case_units: data.case_units } : {}),
+        ...(data.reference_media_ids !== undefined ? { reference_media_ids: data.reference_media_ids } : {}),
+        ...(data.active !== undefined ? { active: data.active } : {}),
+        version: current.version + 1,
+        updated_at: new Date().toISOString(),
+      };
+      this.doubleProducts[idx] = updated;
+      return updated;
+    }
+    return this.fetch<Product>(`/products/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
   async listLocations(): Promise<{ items: Location[] }> {
     if (this.useDoubles) {
       return { items: [...this.doubleLocations] };
@@ -275,10 +329,10 @@ export class StoreOpsClient {
     return this.fetch<{ items: Location[] }>("/locations");
   }
 
-  async createLocation(data: { code: string; name: string; timezone: string }): Promise<Location> {
+  async createLocation(data: LocationCreate): Promise<Location> {
     if (this.useDoubles) {
       const newLoc: Location = {
-        id: `loc-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         code: data.code,
         name: data.name,
@@ -307,7 +361,7 @@ export class StoreOpsClient {
   async createImport(data: { kind: "SALES_DAILY" | "INVENTORY_SNAPSHOT"; media_id: string }): Promise<Import> {
     if (this.useDoubles) {
       const newImport: Import = {
-        id: `imp-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         kind: data.kind,
         media_id: data.media_id,
@@ -340,7 +394,7 @@ export class StoreOpsClient {
         ...current,
         status: "COMMITTED",
         committed_at: new Date().toISOString(),
-        batch_id: `bat-${Date.now()}`,
+        batch_id: generateUuid(),
         version: current.version + 1,
         updated_at: new Date().toISOString(),
       };
@@ -360,22 +414,16 @@ export class StoreOpsClient {
     return this.fetch<{ items: Promotion[]; next_cursor: string | null }>("/promotions");
   }
 
-  async createPromotion(data: {
-    name: string;
-    starts_on: string;
-    ends_on: string;
-    store_ids: string[];
-    agreement_media_id?: string | null;
-  }): Promise<Promotion> {
+  async createPromotion(data: PromotionCreate): Promise<Promotion> {
     if (this.useDoubles) {
       const newPromo: Promotion = {
-        id: `prm-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         name: data.name,
         starts_on: data.starts_on,
         ends_on: data.ends_on,
         store_ids: data.store_ids,
-        agreement_media_id: data.agreement_media_id || null,
+        agreement_media_id: data.agreement_media_id,
         active_version_id: null,
         archived: false,
         version: 1,
@@ -391,11 +439,7 @@ export class StoreOpsClient {
     });
   }
 
-  async approvePolicy(promotionId: string, data: {
-    expected_version: number;
-    catalog_product_ids: string[];
-    rules: Rule[];
-  }): Promise<PolicyVersion> {
+  async approvePolicy(promotionId: string, data: ApprovePolicy): Promise<PolicyVersion> {
     if (this.useDoubles) {
       const promo = this.doublePromotions.find((p) => p.id === promotionId);
       if (!promo) throw new ApiRequestError(404, "NOT_FOUND", "Promotion not found");
@@ -404,12 +448,12 @@ export class StoreOpsClient {
       }
 
       const newVersion: PolicyVersion = {
-        id: `pol-${Date.now()}`,
+        id: generateUuid(),
         workspace_id: this.getWorkspaceId() || DEFAULT_WORKSPACE_ID,
         promotion_id: promotionId,
         version_number: (this.doublePolicyVersions.filter((v) => v.promotion_id === promotionId).length || 0) + 1,
         status: "APPROVED",
-        approved_by: "usr-admin-001",
+        approved_by: "00000000-0000-0000-0000-000000000009",
         approved_at: new Date().toISOString(),
         rules: data.rules,
         catalog_product_ids: data.catalog_product_ids,
@@ -422,7 +466,8 @@ export class StoreOpsClient {
       promo.version += 1;
       return newVersion;
     }
-    return this.fetch<PolicyVersion>(`/promotions/${promotionId}/approve-policy`, {
+    // Fixed path per contracts/openapi.json: POST /promotions/{promotion_id}/approve
+    return this.fetch<PolicyVersion>(`/promotions/${promotionId}/approve`, {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -434,7 +479,8 @@ export class StoreOpsClient {
         items: this.doublePolicyVersions.filter((v) => v.promotion_id === promotionId),
       };
     }
-    return this.fetch<{ items: PolicyVersion[] }>(`/promotions/${promotionId}/policy-versions`);
+    // Fixed path per contracts/openapi.json: GET /promotions/{promotion_id}/versions
+    return this.fetch<{ items: PolicyVersion[] }>(`/promotions/${promotionId}/versions`);
   }
 }
 

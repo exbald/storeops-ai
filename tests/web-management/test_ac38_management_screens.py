@@ -185,3 +185,66 @@ def test_ac38_role_based_access_control():
 
     assert "ADMIN" in content and "REP" in content, "Auth context must support ADMIN and REP roles"
     assert "isAdmin" in content or "hasRole" in content, "Auth context must expose role evaluation helper"
+
+
+def test_ac38_catalog_uses_update_product_not_update_store():
+    """Verify that catalog management screen calls updateProduct and does not invoke updateStore.
+    
+    Regression test for OpenCode review finding: catalog screen was mistakenly calling updateStore.
+    """
+    catalog_page = WEB_SRC_DIR / "app" / "(dashboard)" / "catalog" / "page.tsx"
+    assert catalog_page.exists(), "catalog/page.tsx must exist"
+    content = catalog_page.read_text(encoding="utf-8")
+
+    assert "apiClient.updateProduct" in content, "Catalog page must call apiClient.updateProduct"
+    assert "apiClient.updateStore" not in content, "Catalog page must NOT call apiClient.updateStore"
+
+
+def test_ac38_route_guards_enforce_admin_privileges():
+    """Verify that dashboard layout implements route guards for admin-restricted screens.
+    
+    Restricted prefixes: /setup, /catalog, /imports, /promotions.
+    """
+    layout_page = WEB_SRC_DIR / "app" / "(dashboard)" / "layout.tsx"
+    assert layout_page.exists(), "layout.tsx must exist"
+    content = layout_page.read_text(encoding="utf-8")
+
+    assert "isAdmin" in content, "Layout must check isAdmin"
+    assert "Access Restricted" in content or "Access Denied" in content, "Layout must present access restriction message"
+    assert 'role="alert"' in content, "Access restriction must be accessible via role=alert"
+    for route in ["/setup", "/catalog", "/imports", "/promotions"]:
+        assert route in content, f"Route guard must restrict {route}"
+
+
+def test_ac38_rfc4122_uuid_compliance_in_doubles():
+    """Verify that mock doubles in apps/web/src/lib/doubles.ts use valid RFC 4122 UUIDs."""
+    import re
+    uuid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+    doubles_file = WEB_SRC_DIR / "lib" / "doubles.ts"
+    assert doubles_file.exists(), "doubles.ts must exist"
+    content = doubles_file.read_text(encoding="utf-8")
+
+    # Find all strings like "00000000-0000-0000-0000-..."
+    uuid_matches = re.findall(r'"([0-9a-fA-F-]{36})"', content)
+    assert len(uuid_matches) > 10, "Must have defined RFC 4122 UUID constants in doubles"
+    for u in uuid_matches:
+        assert uuid_pattern.match(u), f"ID '{u}' in doubles.ts is not a valid RFC 4122 UUID"
+
+
+def test_ac38_policy_endpoints_match_openapi():
+    """Verify that policy approval and versions use the frozen contract paths.
+    
+    OpenAPI frozen paths:
+    - POST /promotions/{promotion_id}/approve (not /approve-policy)
+    - GET /promotions/{promotion_id}/versions (not /policy-versions)
+    """
+    client_file = WEB_SRC_DIR / "lib" / "api-client.ts"
+    assert client_file.exists(), "api-client.ts must exist"
+    content = client_file.read_text(encoding="utf-8")
+
+    assert "/promotions/${promotionId}/approve" in content or "/promotions/${id}/approve" in content
+    assert "/promotions/${promotionId}/versions" in content or "/promotions/${id}/versions" in content
+    assert "/approve-policy" not in content, "Must not use drift endpoint /approve-policy"
+    assert "/policy-versions" not in content, "Must not use drift endpoint /policy-versions"
+

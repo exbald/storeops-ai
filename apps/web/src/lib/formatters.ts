@@ -6,7 +6,7 @@
  * - Distributor and store stock always have separate labels.
  */
 
-export function formatSales(units: number | null | undefined, currency = "SGD"): string {
+export function formatSales(units: number | null | undefined): string {
   if (units === null || units === undefined) {
     return "No sales data";
   }

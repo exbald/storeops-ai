@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth-context";
+import { apiClient } from "../../lib/api-client";
 import { Badge } from "../ui/badge";
 
 export function Header() {
@@ -21,6 +22,11 @@ export function Header() {
 
   return (
     <header className="w-full bg-white border-b border-gray-200 sticky top-0 z-40">
+      {apiClient.useDoubles && (
+        <div className="bg-amber-100 border-b border-amber-300 text-amber-900 text-xs px-4 py-1 text-center font-medium">
+          [TEST DOUBLE MODE] Running in-memory doubles per AC-38. Real backend integration occurs in Wave 4 (T08).
+        </div>
+      )}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand */}
         <div className="flex items-center gap-6">
@@ -104,9 +110,9 @@ export function Header() {
                   type="button"
                   onClick={() => setRole(role === "ADMIN" ? "REP" : "ADMIN")}
                   className="text-xs text-blue-600 hover:text-blue-800 underline focus:outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
-                  title="Toggle between ADMIN and REP to verify authorization controls"
+                  title="Dev simulation: Toggle between ADMIN and REP to verify UI authorization controls"
                 >
-                  Switch to {role === "ADMIN" ? "REP" : "ADMIN"}
+                  [Dev Sim: Switch to {role === "ADMIN" ? "REP" : "ADMIN"}]
                 </button>
               </div>
 
