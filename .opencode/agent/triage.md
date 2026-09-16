@@ -62,8 +62,9 @@ find one, link it and apply `duplicate`.
 
 1. Read the relevant docs before answering — `README.md`, `AGENTS.md`, the matching
    `specs/` file — don't guess.
-2. Apply labels with `gh issue edit --add-label "<label>"`. Run `gh label list` first and
-   use only labels that already exist.
+2. Apply labels with `gh issue edit <issue-number> --add-label "<label>"` — the issue
+   number is required, `gh` will not infer it. Run `gh label list` first and use only
+   labels that already exist; never invent one.
 3. Your final message is posted as the issue comment. Write it as clear markdown.
 
 Keep responses focused. Silence-plus-a-label is fine for a well-formed bug.
