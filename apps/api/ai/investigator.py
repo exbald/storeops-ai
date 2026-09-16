@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from storeops_contracts.models import (
     ToolEnvelope,
 )
 
+from apps.api.ai.extract import calculate_metrics_from_sales_context
 from apps.api.ai.prompts import (
     INVESTIGATION_PROMPT,
     INVESTIGATION_SYSTEM_INSTRUCTION,
@@ -56,6 +58,8 @@ class InvestigationContext:
     snapshot_id: UUID
     catalog_product_ids: list[UUID]
     policy_version_id: UUID | None = None
+    zone_media_ids: dict[str, UUID] | None = None
+    agreement_media_id: UUID | None = None
 
 
 class ReadOnlyToolRegistry:
@@ -154,7 +158,24 @@ class Investigator:
             },
         )
 
-        # 4. Fetch approved policy if policy_version_id provided
+        # 4. Inspect visual zones if media provided and inspect_image registered
+        observations_data: list[dict[str, Any]] = []
+        if "inspect_image" in tools._tools and ctx.zone_media_ids:
+            for zone_id, media_id in ctx.zone_media_ids.items():
+                img_env = call_tool(
+                    "inspect_image",
+                    {
+                        "media_id": str(media_id),
+                        "reference_media_ids": [
+                            str(pid) for pid in ctx.catalog_product_ids[:10]
+                        ],
+                        "zone_id": zone_id,
+                    },
+                )
+                if img_env.status == Status8.OK and img_env.data:
+                    observations_data.append(img_env.data)
+
+        # 5. Fetch approved policy if policy_version_id provided
         policy_env = None
         known_rule_ids: set[UUID] = set()
         if ctx.policy_version_id:
@@ -165,9 +186,16 @@ class Investigator:
             if policy_env.status == Status8.OK and policy_env.data:
                 rules_list = policy_env.data.get("rules", [])
                 for r in rules_list:
-                    if isinstance(r, dict) and "id" in r:
+                    if isinstance(r, dict):
+                        rid = r.get("rule_id") or r.get("id")
+                        if rid:
+                            try:
+                                known_rule_ids.add(UUID(str(rid)))
+                            except (ValueError, TypeError):
+                                pass
+                    elif hasattr(r, "rule_id"):
                         try:
-                            known_rule_ids.add(UUID(str(r["id"])))
+                            known_rule_ids.add(UUID(str(r.rule_id)))
                         except (ValueError, TypeError):
                             pass
                     elif hasattr(r, "id"):
@@ -176,66 +204,65 @@ class Investigator:
                         except (ValueError, TypeError):
                             pass
 
-        # 5. Calculate metrics deterministically per specs/05-ai.md
+        # 6. Calculate metrics deterministically using peer_gap_v1 or calculate_metrics tool
         metrics_data: dict[str, Any] = {}
         sales_delta_negative: bool = False
         if sales_env.status == Status8.OK and sales_env.data:
-            try:
-                sales_ctx = SalesContext.model_validate(sales_env.data)
-                if sales_ctx.prior_units and sales_ctx.prior_units > 0:
-                    store_growth = (
-                        sales_ctx.current_units - sales_ctx.prior_units
-                    ) / sales_ctx.prior_units
-                    metrics_data["sales_delta"] = str(round(store_growth, 4))
-                    if store_growth < 0:
+            if "calculate_metrics" in tools._tools:
+                metrics_env = call_tool("calculate_metrics", sales_env.data)
+                if metrics_env.status == Status8.OK and metrics_env.data:
+                    metrics_data = (
+                        metrics_env.data
+                        if isinstance(metrics_env.data, dict)
+                        else metrics_env.data.model_dump(mode="json")
+                    )
+            else:
+                try:
+                    sales_ctx = SalesContext.model_validate(sales_env.data)
+                    metrics_obj = calculate_metrics_from_sales_context(sales_ctx)
+                    metrics_data = metrics_obj.model_dump(mode="json")
+                except (KeyError, TypeError, ValueError, ZeroDivisionError) as err:
+                    logger.warning(
+                        f"Deterministic metric computation encountered: {err}"
+                    )
+
+            if metrics_data and metrics_data.get("sales_delta") is not None:
+                try:
+                    delta_dec = Decimal(str(metrics_data["sales_delta"]))
+                    if delta_dec < Decimal(0):
                         sales_delta_negative = True
+                except (ValueError, TypeError):
+                    pass
 
-                # Peer growth requires >= 3 complete eligible peers with non-zero prior units
-                if sales_ctx.eligible_peers:
-                    valid_peers = [
-                        p
-                        for p in sales_ctx.eligible_peers
-                        if p.complete and p.prior_units and p.prior_units > 0
-                    ]
-                    if len(valid_peers) >= 3:
-                        sum_curr_peer = sum(p.current_units for p in valid_peers)
-                        sum_prior_peer = sum(p.prior_units for p in valid_peers)
-                        if sum_prior_peer > 0:
-                            peer_growth = (sum_curr_peer / sum_prior_peer) - 1.0
-                            metrics_data["peer_growth"] = str(round(peer_growth, 4))
-                            if "sales_delta" in metrics_data:
-                                metrics_data["growth_difference"] = str(
-                                    round(store_growth - peer_growth, 4)
-                                )
-            except (KeyError, TypeError, ValueError, ZeroDivisionError) as e:
-                logger.warning(f"Deterministic metric computation encountered: {e}")
-
-        # 6. Build prompt for ModelGateway
-        prompt = INVESTIGATION_PROMPT.format(
-            store_id=ctx.store_id,
-            snapshot_id=ctx.snapshot_id,
-            sales_context=json.dumps(sales_env.data or {}),
-            metrics_context=json.dumps(metrics_data),
-            stock_context=json.dumps(stock_env.data or {}),
-            visit_history=json.dumps(visit_env.data or {}),
-            observations="{}",
-            approved_policy=json.dumps(policy_env.data if policy_env else {}),
-            evidence_ids=[str(e) for e in known_evidence_ids],
+        # 7. Build prompt with system instruction enclosure for ModelGateway
+        prompt = (
+            f"<system_instruction>\n{INVESTIGATION_SYSTEM_INSTRUCTION}\n</system_instruction>\n\n"
+            + INVESTIGATION_PROMPT.format(
+                store_id=ctx.store_id,
+                snapshot_id=ctx.snapshot_id,
+                sales_context=json.dumps(sales_env.data or {}),
+                metrics_context=json.dumps(metrics_data),
+                stock_context=json.dumps(stock_env.data or {}),
+                visit_history=json.dumps(visit_env.data or {}),
+                observations=json.dumps(observations_data),
+                approved_policy=json.dumps(policy_env.data if policy_env else {}),
+                evidence_ids=[str(e) for e in known_evidence_ids],
+            )
         )
 
-        # 7. Generate structured proposal with separate system instruction
+        # 8. Generate structured proposal via port-compliant method
         proposal: AnalysisProposal = await self.gateway.generate_structured(
             prompt=prompt,
             response_schema=AnalysisProposal,
-            system_instruction=INVESTIGATION_SYSTEM_INSTRUCTION,
         )
 
-        # 8. Strict Groundedness Validation
+        # 9. Strict Groundedness Validation
         self._validate_groundedness(
             proposal=proposal,
             known_evidence_ids=known_evidence_ids,
             known_rule_ids=known_rule_ids,
             sales_delta_negative=sales_delta_negative,
+            metrics_data=metrics_data,
         )
 
         return proposal
@@ -246,6 +273,7 @@ class Investigator:
         known_evidence_ids: set[UUID],
         known_rule_ids: set[UUID],
         sales_delta_negative: bool,
+        metrics_data: dict[str, Any],
     ) -> None:
         # Check all claims cite known evidence
         for claim in proposal.claims:
@@ -255,7 +283,7 @@ class Investigator:
                         f"Ungrounded evidence ID {eid} in claim '{claim.claim_key}'. Must cite gathered evidence."
                     )
 
-        # Check numerical metric conflict across all claims and hypothesis
+        # Check numerical metric conflict against computed Metrics DTO
         if sales_delta_negative:
             # If sales delta is negative, hypothesis cannot be NO_ISSUE
             if proposal.hypothesis == "NO_ISSUE":
@@ -270,26 +298,17 @@ class Investigator:
                     r"\bgrowth\b",
                     r"\bsurged\b",
                     r"\boutperformed\b",
+                    r"\bpositive\b",
+                    r"\+\d+",
                 ]
                 has_positive = any(
                     re.search(pat, lower_text) for pat in positive_patterns
                 )
-                contradicts_growth = (
-                    re.search(
-                        r"\b(increased by|grew by|surged|positive growth|\+\d+)\b",
-                        lower_text,
-                    )
-                    or "increased by 50" in lower_text
-                )
-                if (
-                    has_positive
-                    and "negative" not in lower_text
-                    and "not" not in lower_text
-                    and "decline" not in lower_text
-                    and contradicts_growth
-                ):
+                negation_words = ["negative", "decline", "not", "decrease", "down"]
+                has_negation = any(neg in lower_text for neg in negation_words)
+                if has_positive and not has_negation:
                     raise GroundednessValidationError(
-                        f"Numerical conflict in claim '{claim.claim_key}': claim asserts positive sales increase despite negative sales delta."
+                        f"Numerical conflict in claim '{claim.claim_key}': claim asserts positive sales increase despite negative sales delta ({metrics_data.get('sales_delta')})."
                     )
 
         # Check all alternatives cite known evidence

@@ -1,7 +1,10 @@
 """Gemini and Deterministic Model Gateways implementing ModelGateway protocol."""
 
+import asyncio
 import json
 import logging
+import os
+import re
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -9,45 +12,60 @@ from pydantic import BaseModel, ValidationError
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_error(msg: str) -> str:
+    """Mask potential API keys or query params in error strings."""
+    sanitized = re.sub(r"AIza[0-9A-Za-z-_]{35}", "[MASKED_KEY]", msg)
+    return re.sub(r"key=[^&\s]+", "key=[MASKED]", sanitized)
+
+
 class ModelGatewayError(Exception):
-    """Base exception for model gateway failures."""
+    """Base exception for ModelGateway failures."""
 
 
 class ModelQuotaError(ModelGatewayError):
-    """Raised when provider quota or rate limit is exhausted (HTTP 429)."""
+    """Exceeded provider rate limit or quota (HTTP 429)."""
 
 
 class ModelTimeoutError(ModelGatewayError):
-    """Raised when inference exceeds allocated time budget."""
+    """Provider call timed out."""
 
 
 class ModelTransientError(ModelGatewayError):
-    """Raised on temporary provider network or server failures (HTTP 503/500)."""
+    """Transient provider error (HTTP 500, 503)."""
 
 
 class ModelSchemaError(ModelGatewayError):
-    """Raised when model response cannot be parsed or validated into requested schema."""
+    """Output could not be parsed into requested schema even after 1-shot repair."""
 
 
 class ModelBlockedError(ModelGatewayError):
-    """Raised when model generation is blocked by safety filters."""
+    """Output blocked by safety filter or policy."""
 
 
 class GeminiGateway:
-    """Production Google Gen AI Gemini gateway with structured output, multimodal input, and 1-shot repair."""
+    """Production implementation of ModelGateway using Google Gen AI SDK."""
 
     def __init__(
-        self, api_key: str | None = None, model_id: str = "gemini-2.5-flash"
+        self,
+        api_key: str | None = None,
+        model_id: str = "gemini-2.5-flash",
     ) -> None:
-        self.api_key = api_key
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model_id = model_id
         self._client: Any = None
 
     def _get_client(self) -> Any:
-        if self._client is None:
-            from google import genai
+        if not self._client:
+            if not self.api_key:
+                raise ModelGatewayError(
+                    "Missing GEMINI_API_KEY. Live model inference requires credentials."
+                )
+            try:
+                from google import genai
 
-            self._client = genai.Client(api_key=self.api_key)
+                self._client = genai.Client(api_key=self.api_key)
+            except ImportError as err:
+                raise ModelGatewayError("google-genai SDK not installed.") from err
         return self._client
 
     def _detect_image_mime(self, data: bytes) -> str:
@@ -93,8 +111,9 @@ class GeminiGateway:
                 contents=contents,
                 config=config,
             )
-        # Fallback to sync call if aio not present
-        return client.models.generate_content(
+        # Non-blocking execution of sync client call
+        return await asyncio.to_thread(
+            client.models.generate_content,
             model=self.model_id,
             contents=contents,
             config=config,
@@ -104,7 +123,7 @@ class GeminiGateway:
         try:
             return await self._invoke_api(contents=contents, config=config)
         except Exception as exc:
-            msg = str(exc)
+            msg = _sanitize_error(str(exc))
             if "429" in msg or "ResourceExhausted" in msg or "quota" in msg.lower():
                 raise ModelQuotaError(f"Gemini API quota exceeded: {msg}") from exc
             if (
@@ -129,11 +148,29 @@ class GeminiGateway:
         images: list[bytes] | None = None,
         pdfs: list[bytes] | None = None,
         thinking_budget: str | None = None,
-        system_instruction: str | None = None,
     ) -> Any:
         from google.genai import types
 
-        parts = self._build_multimodal_parts(prompt=prompt, images=images, pdfs=pdfs)
+        # Extract system instruction embedded in prompt tags to preserve ModelGateway protocol signature
+        system_instruction = None
+        match = re.search(
+            r"<system_instruction>\s*(.*?)\s*</system_instruction>",
+            prompt,
+            re.DOTALL,
+        )
+        cleaned_prompt = prompt
+        if match:
+            system_instruction = match.group(1).strip()
+            cleaned_prompt = re.sub(
+                r"<system_instruction>\s*.*?\s*</system_instruction>",
+                "",
+                prompt,
+                flags=re.DOTALL,
+            ).strip()
+
+        parts = self._build_multimodal_parts(
+            prompt=cleaned_prompt, images=images, pdfs=pdfs
+        )
 
         thinking_config = None
         if thinking_budget:
@@ -170,11 +207,12 @@ class GeminiGateway:
             )
 
             # 1-shot repair attempt per specs/05-ai.md
-            # Fence raw output in code blocks to prevent injection reflection
+            # Replace inner backticks to prevent markdown code block breakout
+            safe_raw_text = raw_text.replace("```", "'''")
             repair_prompt = (
                 f"Your previous response failed schema validation:\n"
                 f"Error: {first_err}\n"
-                f"Previous output:\n```json\n{raw_text}\n```\n\n"
+                f"Previous output:\n```json\n{safe_raw_text}\n```\n\n"
                 f"Please fix the validation error and return strictly valid JSON conforming to schema."
             )
             repair_parts = [types.Part.from_text(text=repair_prompt)]
@@ -210,7 +248,6 @@ class DeterministicModelGateway:
         images: list[bytes] | None = None,
         pdfs: list[bytes] | None = None,
         thinking_budget: str | None = None,
-        system_instruction: str | None = None,
     ) -> Any:
         self.call_history.append(
             {
@@ -219,7 +256,6 @@ class DeterministicModelGateway:
                 "images_count": len(images) if images else 0,
                 "pdfs_count": len(pdfs) if pdfs else 0,
                 "thinking_budget": thinking_budget,
-                "system_instruction": system_instruction,
             }
         )
 

@@ -136,8 +136,9 @@ async def test_investigator_arbitrary_product_ids_and_grounded_proposal(
     mock_tool_registry: ReadOnlyToolRegistry,
     sample_sales_context: SalesContext,
     sample_stock_context: StockContext,
+    rule_id: UUID,
 ):
-    """Verifies that arbitrary product IDs work and valid proposals cite actual gathered evidence."""
+    """Proposal citing valid evidence and arbitrary UUID product IDs must pass validation."""
     gateway = DeterministicModelGateway()
     investigator = Investigator(gateway=gateway, max_tool_calls=10)
 
@@ -172,7 +173,7 @@ async def test_investigator_arbitrary_product_ids_and_grounded_proposal(
         actions=[
             ProposedAction(
                 kind="RESTORE_FACINGS",
-                rule_ids=[],
+                rule_ids=[rule_id],
                 claim_keys=["c1", "c2"],
                 evidence_ids=[valid_stock_ev],
                 instruction=f"Restock product {product_ids[0]} from backroom to front shelf.",
@@ -195,6 +196,7 @@ async def test_investigator_arbitrary_product_ids_and_grounded_proposal(
     assert result.hypothesis == "EXECUTION"
     assert len(result.claims) == 2
     assert len(result.actions) == 1
+    assert result.actions[0].rule_ids == [rule_id]
     # Check that arbitrary UUID was preserved without problem
     assert str(product_ids[0]) in result.actions[0].instruction
 
@@ -485,3 +487,80 @@ async def test_adversarial_prompt_injection_safety(
 
     with pytest.raises(GroundednessValidationError):
         await investigator.run_investigation(ctx=ctx, tools=mock_tool_registry)
+
+
+@pytest.mark.asyncio
+async def test_investigator_invokes_inspect_image_and_grounds_observations(
+    workspace_id: str,
+    store_id: UUID,
+    snapshot_id: UUID,
+    product_ids: list[UUID],
+    mock_tool_registry: ReadOnlyToolRegistry,
+):
+    """When zone media is provided, investigator executes inspect_image and grounds observations."""
+    gateway = DeterministicModelGateway()
+    investigator = Investigator(gateway=gateway, max_tool_calls=10)
+
+    media_id = uuid4()
+    obs_evidence_id = uuid4()
+
+    # Register inspect_image tool
+    mock_tool_registry.register(
+        "inspect_image",
+        lambda inp: ToolEnvelope(
+            status=Status8.OK,
+            data={
+                "media_id": str(media_id),
+                "zone_id": inp["zone_id"],
+                "zone_kind": "SHELF",
+                "quality": "CLEAR",
+                "coverage": "FULL",
+                "occluded": False,
+                "detections": [],
+                "display": "UNKNOWN",
+                "limitations": [],
+            },
+            evidence_ids=[obs_evidence_id],
+            as_of=datetime.now(UTC),
+            error=None,
+        ),
+    )
+
+    proposal = AnalysisProposal(
+        hypothesis="EXECUTION",
+        summary="Shelf observation gathered and analyzed.",
+        claims=[
+            ProposedClaim(
+                claim_key="c1",
+                kind="OBSERVATION",
+                text="Shelf image analyzed with full coverage.",
+                evidence_ids=[obs_evidence_id],
+            )
+        ],
+        alternatives=[],
+        actions=[
+            ProposedAction(
+                kind="RETAKE",
+                rule_ids=[],
+                claim_keys=["c1"],
+                evidence_ids=[obs_evidence_id],
+                instruction="Re-audit shelf after facing fix.",
+                required_zone_ids=["shelf-1"],
+            )
+        ],
+        unresolved_questions=[],
+    )
+    gateway.register_response(AnalysisProposal, proposal)
+
+    ctx = InvestigationContext(
+        workspace_id=workspace_id,
+        store_id=store_id,
+        snapshot_id=snapshot_id,
+        catalog_product_ids=product_ids,
+        policy_version_id=None,
+        zone_media_ids={"shelf-1": media_id},
+    )
+
+    result = await investigator.run_investigation(ctx=ctx, tools=mock_tool_registry)
+    assert result.hypothesis == "EXECUTION"
+    assert result.claims[0].evidence_ids == [obs_evidence_id]

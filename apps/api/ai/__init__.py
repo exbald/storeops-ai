@@ -1,8 +1,14 @@
 """StoreOps AI module: Gemini gateway, structured observations, and evidence-scoped investigation."""
 
+from apps.api.ai.extract import (
+    calculate_metrics_from_sales_context,
+    extract_image_observations,
+    extract_merchandising_policy,
+)
 from apps.api.ai.gateway import (
     DeterministicModelGateway,
     GeminiGateway,
+    ModelBlockedError,
     ModelGatewayError,
     ModelQuotaError,
     ModelSchemaError,
@@ -44,6 +50,7 @@ __all__ = [
     "ImageObservation",
     "InvestigationContext",
     "Investigator",
+    "ModelBlockedError",
     "ModelGatewayError",
     "ModelQuotaError",
     "ModelSchemaError",
@@ -56,6 +63,9 @@ __all__ = [
     "ReadOnlyToolRegistry",
     "TenantIsolationError",
     "VerificationProposal",
+    "calculate_metrics_from_sales_context",
+    "extract_image_observations",
+    "extract_merchandising_policy",
     "probe_live_gemini",
     "validate_ai_schema",
 ]
