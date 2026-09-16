@@ -314,7 +314,7 @@
     {
       "id": "T06",
       "title": "Gemini gateway, observations and investigation reasoning",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T01"
