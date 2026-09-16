@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def _sanitize_error(msg: str) -> str:
     """Mask potential API keys or query params in error strings."""
     sanitized = re.sub(r"AIza[0-9A-Za-z-_]{35}", "[MASKED_KEY]", msg)
-    return re.sub(r"key=[^&\s]+", "key=[MASKED]", sanitized)
+    return re.sub(r"(key|token|secret|password)=[^&\s]+", r"\1=[MASKED]", sanitized)
 
 
 class ModelGatewayError(Exception):
@@ -141,6 +141,25 @@ class GeminiGateway:
                 raise ModelBlockedError(f"Gemini response blocked: {msg}") from exc
             raise ModelGatewayError(f"Gemini call failed: {msg}") from exc
 
+    @staticmethod
+    def _extract_system_instruction(prompt: str) -> tuple[str, str | None]:
+        """Extract embedded system instruction from prompt tags."""
+        match = re.search(
+            r"<system_instruction>\s*(.*?)\s*</system_instruction>",
+            prompt,
+            re.DOTALL,
+        )
+        if match:
+            system_instruction = match.group(1).strip()
+            cleaned_prompt = re.sub(
+                r"<system_instruction>\s*.*?\s*</system_instruction>",
+                "",
+                prompt,
+                flags=re.DOTALL,
+            ).strip()
+            return cleaned_prompt, system_instruction
+        return prompt, None
+
     async def generate_structured(
         self,
         prompt: str,
@@ -152,21 +171,7 @@ class GeminiGateway:
         from google.genai import types
 
         # Extract system instruction embedded in prompt tags to preserve ModelGateway protocol signature
-        system_instruction = None
-        match = re.search(
-            r"<system_instruction>\s*(.*?)\s*</system_instruction>",
-            prompt,
-            re.DOTALL,
-        )
-        cleaned_prompt = prompt
-        if match:
-            system_instruction = match.group(1).strip()
-            cleaned_prompt = re.sub(
-                r"<system_instruction>\s*.*?\s*</system_instruction>",
-                "",
-                prompt,
-                flags=re.DOTALL,
-            ).strip()
+        cleaned_prompt, system_instruction = self._extract_system_instruction(prompt)
 
         parts = self._build_multimodal_parts(
             prompt=cleaned_prompt, images=images, pdfs=pdfs
@@ -209,9 +214,10 @@ class GeminiGateway:
             # 1-shot repair attempt per specs/05-ai.md
             # Replace inner backticks to prevent markdown code block breakout
             safe_raw_text = raw_text.replace("```", "'''")
+            safe_err = str(first_err).replace("```", "'''")
             repair_prompt = (
                 f"Your previous response failed schema validation:\n"
-                f"Error: {first_err}\n"
+                f"Error: {safe_err}\n"
                 f"Previous output:\n```json\n{safe_raw_text}\n```\n\n"
                 f"Please fix the validation error and return strictly valid JSON conforming to schema."
             )

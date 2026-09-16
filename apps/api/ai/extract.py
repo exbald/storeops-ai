@@ -138,7 +138,7 @@ def calculate_metrics_from_sales_context(
                 # If prior revenue available, compute opportunity proxy
                 if (
                     hasattr(sales_ctx, "prior_revenue")
-                    and sales_ctx.prior_revenue
+                    and sales_ctx.prior_revenue is not None
                     and sales_ctx.prior_units > 0
                 ):
                     avg_price = Decimal(str(sales_ctx.prior_revenue)) / Decimal(
@@ -149,8 +149,8 @@ def calculate_metrics_from_sales_context(
                     )
                     opportunity_proxy_str = str(opp)
                 else:
-                    opp = unit_gap.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    opportunity_proxy_str = str(opp)
+                    null_reasons.append(NullReason(root="MISSING_PRIOR_REVENUE"))
+                    opportunity_proxy_str = None
 
     return Metrics(
         sales_delta=sales_delta_str,

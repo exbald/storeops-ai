@@ -219,7 +219,9 @@ class Investigator:
             else:
                 try:
                     sales_ctx = SalesContext.model_validate(sales_env.data)
-                    metrics_obj = calculate_metrics_from_sales_context(sales_ctx)
+                    metrics_obj = calculate_metrics_from_sales_context(
+                        sales_ctx, currency=sales_ctx.currency
+                    )
                     metrics_data = metrics_obj.model_dump(mode="json")
                 except (KeyError, TypeError, ValueError, ZeroDivisionError) as err:
                     logger.warning(

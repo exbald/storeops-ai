@@ -144,3 +144,53 @@ async def test_gemini_gateway_multimodal_parts_construction():
     assert parts[1].inline_data.mime_type == "image/png"
     # Third part is pdf inline data
     assert parts[2].inline_data.mime_type == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_gemini_gateway_system_instruction_extraction():
+    gateway = GeminiGateway(api_key="test-key")
+    prompt = (
+        "<system_instruction>\nYou are a retail audit expert.\n</system_instruction>\n\n"
+        "Analyze this store."
+    )
+
+    clean_prompt, sys_inst = gateway._extract_system_instruction(prompt)
+    assert sys_inst == "You are a retail audit expert."
+    assert clean_prompt == "Analyze this store."
+
+
+def test_gemini_gateway_sanitize_error_masks_credentials():
+    from apps.api.ai.gateway import _sanitize_error
+
+    raw = "Request failed: https://generativelanguage.googleapis.com?key=AIzaSyA_testkey123 and token=my-secret-token"
+    sanitized = _sanitize_error(raw)
+    assert "AIzaSyA_testkey123" not in sanitized
+    assert "my-secret-token" not in sanitized
+    assert "[MASKED]" in sanitized
+
+
+@pytest.mark.asyncio
+async def test_gemini_gateway_repair_prompt_backtick_escaping():
+    gateway = GeminiGateway(api_key="test-key")
+
+    with patch.object(gateway, "_invoke_api", new_callable=AsyncMock) as mock_call:
+        # First call returns malformed JSON with internal code fences
+        resp1 = MagicMock()
+        resp1.text = '```json\n{"broken": true ```something```}\n```'
+        # Second call returns fixed valid JSON
+        resp2 = MagicMock()
+        resp2.text = '{"message": "fixed", "count": 2}'
+        mock_call.side_effect = [resp1, resp2]
+
+        result = await gateway.generate_structured(
+            prompt="Generate object",
+            response_schema=SimpleTarget,
+        )
+        assert result.message == "fixed"
+        assert result.count == 2
+        # Check that repair prompt escaped backticks
+        call_kwargs = mock_call.call_args_list[1][1]
+        repair_parts = call_kwargs.get("contents") or mock_call.call_args_list[1][0][0]
+        repair_prompt = getattr(repair_parts[0], "text", str(repair_parts[0]))
+        assert "```something```" not in repair_prompt
+        assert "'''something'''" in repair_prompt
