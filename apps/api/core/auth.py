@@ -64,8 +64,8 @@ def set_state_repository(repo: StateRepository) -> None:
 
 async def get_current_user(
     request: Request,
+    verifier: Annotated[IdentityVerifier, Depends(get_identity_verifier)],
     authorization: Annotated[str | None, Header()] = None,
-    verifier: IdentityVerifier = Depends(get_identity_verifier),
 ) -> UserContext:
     if not authorization:
         # Check X-Test-Uid in dev/test mode
@@ -89,9 +89,9 @@ async def get_current_user(
 
 def require_workspace(required_role: str = "REP"):
     async def _require_workspace(
+        user: Annotated[UserContext, Depends(get_current_user)],
+        state_repo: Annotated[StateRepository, Depends(get_state_repository)],
         x_workspace_id: Annotated[UUID | None, Header(alias="X-Workspace-Id")] = None,
-        user: UserContext = Depends(get_current_user),
-        state_repo: StateRepository = Depends(get_state_repository),
     ) -> WorkspaceContext:
         if not x_workspace_id:
             raise ApiError(status_code=400, code="MISSING_WORKSPACE", message="X-Workspace-Id header is required")
@@ -104,7 +104,8 @@ def require_workspace(required_role: str = "REP"):
                 message="User is not a member of the requested workspace",
             )
 
-        if required_role == "ADMIN" and membership.role != "ADMIN":
+        role_val = membership.role.value if hasattr(membership.role, "value") else str(membership.role)
+        if required_role == "ADMIN" and role_val != "ADMIN":
             raise ApiError(
                 status_code=403,
                 code="FORBIDDEN",

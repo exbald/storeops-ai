@@ -1,9 +1,12 @@
 import hashlib
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+import io
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
-from storeops_contracts import Job, JobStatus, JobType, Status
+from PIL import Image
+from storeops_contracts import Job, JobStatus, JobType
+from storeops_contracts.models import Error, JobEvents, ResourceType
 
 from apps.api.jobs.runner import JobRunner
 from apps.api.ports.state import VersionConflictError
@@ -11,12 +14,11 @@ from apps.api.ports.state import VersionConflictError
 
 @pytest.mark.asyncio
 async def test_ac37_scope_and_membership_enforcement(api_client, bootstrapped_workspace):
-    """AC37.1: Membership and role checks deny invalid scope."""
+    """AC37.1: Multi-tenant boundary enforcement via X-Workspace-Id and role checks."""
     ws = bootstrapped_workspace["workspace"]
     admin_uid = bootstrapped_workspace["admin_uid"]
-    foreign_uid = "unauthorized-intruder"
 
-    # Missing X-Workspace-Id header -> 400
+    # 1. Missing workspace header -> 400
     resp_missing = await api_client.get(
         "/workspace",
         headers={"Authorization": f"Bearer {admin_uid}"},
@@ -24,16 +26,27 @@ async def test_ac37_scope_and_membership_enforcement(api_client, bootstrapped_wo
     assert resp_missing.status_code == 400
     assert resp_missing.json()["code"] == "MISSING_WORKSPACE"
 
-    # User not a member -> 403
-    resp_forbidden = await api_client.get(
+    # 2. Foreign workspace header -> 403
+    foreign_ws_id = uuid4()
+    resp_foreign = await api_client.get(
         "/workspace",
         headers={
-            "Authorization": f"Bearer {foreign_uid}",
+            "Authorization": f"Bearer {admin_uid}",
+            "X-Workspace-Id": str(foreign_ws_id),
+        },
+    )
+    assert resp_foreign.status_code == 403
+    assert resp_foreign.json()["code"] == "FORBIDDEN"
+
+    # 3. Valid workspace header with admin member -> 200
+    resp_valid = await api_client.get(
+        "/workspace",
+        headers={
+            "Authorization": f"Bearer {admin_uid}",
             "X-Workspace-Id": str(ws.id),
         },
     )
-    assert resp_forbidden.status_code == 403
-    assert resp_forbidden.json()["code"] == "FORBIDDEN"
+    assert resp_valid.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -55,7 +68,7 @@ async def test_ac37_blob_primitives(blob_repo):
 
     # 2. Download URL generation
     url = await blob_repo.get_download_url(media_id, expires_in_seconds=300)
-    assert f"expires=300" in url
+    assert "expires=300" in url
 
     # 3. Oversized asset rejection (> 5MB for image)
     oversized_media_id = uuid4()
@@ -63,12 +76,32 @@ async def test_ac37_blob_primitives(blob_repo):
     with pytest.raises(ValueError, match="exceeds maximum allowed size"):
         await blob_repo.finalize_upload(oversized_media_id, raw_bytes=oversized_bytes)
 
+    # 4. EXIF-oriented JPEG: orientation normalization and EXIF metadata stripping
+    img = Image.new("RGB", (100, 50), color="blue")
+    exif = img.getexif()
+    exif[0x0112] = 6  # 90 degrees CW rotation tag
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    exif_jpeg_bytes = buf.getvalue()
+
+    exif_media_id = uuid4()
+    _sha_exif, _size_exif, dims_exif = await blob_repo.finalize_upload(
+        exif_media_id, raw_bytes=exif_jpeg_bytes
+    )
+    assert dims_exif == (50, 100)  # Dimensions swapped after orientation normalization
+
+    stored_bytes = await blob_repo.read_bytes(exif_media_id)
+    with Image.open(io.BytesIO(stored_bytes)) as stored_img:
+        assert not stored_img.getexif()
+        assert stored_img.size == (50, 100)
+
 
 @pytest.mark.asyncio
-async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace):
+async def test_ac37_outbox_and_lease_fencing(api_client, state_repo, bootstrapped_workspace):
     """AC37.3: Outbox enqueue, lease fencing tokens, and duplicate delivery protection."""
     ws = bootstrapped_workspace["workspace"]
-    now = datetime.now(timezone.utc)
+    admin_uid = bootstrapped_workspace["admin_uid"]
+    now = datetime.now(UTC)
     job_id = uuid4()
 
     # Create job with outbox entry
@@ -81,7 +114,7 @@ async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace)
         type=JobType.INVESTIGATE,
         status=JobStatus.QUEUED,
         resource_id=uuid4(),
-        resource_type="investigation",
+        resource_type=ResourceType.INVESTIGATION,
         attempt=1,
         stage="QUEUED",
         started_at=None,
@@ -98,7 +131,7 @@ async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace)
     assert state_repo.outbox[0]["job_id"] == job_id
 
     # Worker 1 acquires lease -> generation 1
-    runner1 = JobRunner(state_repo=state_repo, worker_id="worker-1")
+    _runner1 = JobRunner(state_repo=state_repo, worker_id="worker-1")
     gen1 = await state_repo.acquire_job_lease(job_id, worker_id="worker-1", lease_seconds=60)
     assert gen1 == 1
 
@@ -125,10 +158,27 @@ async def test_ac37_outbox_and_lease_fencing(state_repo, bootstrapped_workspace)
             summary="Zombie update",
         )
 
-    # Verify events recorded
+    # Verify events recorded in state repository
     events = await state_repo.get_job_events(ws.id, job_id)
     assert len(events) == 2  # initial event + stage 1
     assert events[1].stage == "RUNNING"
+
+    # HTTP contract verification: GET /jobs/{job_id} and GET /jobs/{job_id}/events
+    headers = {
+        "Authorization": f"Bearer {admin_uid}",
+        "X-Workspace-Id": str(ws.id),
+    }
+    resp_job = await api_client.get(f"/jobs/{job_id}", headers=headers)
+    assert resp_job.status_code == 200
+    job_contract = Job.model_validate(resp_job.json())
+    assert job_contract.id == job_id
+    assert job_contract.status == JobStatus.RUNNING
+
+    resp_events = await api_client.get(f"/jobs/{job_id}/events", headers=headers)
+    assert resp_events.status_code == 200
+    events_contract = JobEvents.model_validate(resp_events.json())
+    assert len(events_contract.items) == 2
+    assert events_contract.items[1].stage == "RUNNING"
 
 
 @pytest.mark.asyncio
@@ -137,7 +187,7 @@ async def test_ac37_idempotency_replay(api_client, state_repo, bootstrapped_work
     ws = bootstrapped_workspace["workspace"]
     admin_uid = bootstrapped_workspace["admin_uid"]
     job_id = uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Seed a failed investigation job
     failed_job = Job(
@@ -146,15 +196,20 @@ async def test_ac37_idempotency_replay(api_client, state_repo, bootstrapped_work
         version=1,
         created_at=now,
         updated_at=now,
-        type=JobType.INVESTIGATION,
+        type=JobType.INVESTIGATE,
         status=JobStatus.FAILED,
         resource_id=uuid4(),
-        resource_type="investigation",
+        resource_type=ResourceType.INVESTIGATION,
         attempt=1,
         stage="FAILED",
         started_at=now,
         finished_at=now,
-        error="Temporary provider timeout",
+        error=Error(
+            code="PROVIDER_TIMEOUT",
+            message="Temporary provider timeout",
+            request_id=uuid4(),
+            details=[],
+        ),
         linked_previous_job_id=None,
         model_id=None,
         usage=None,
@@ -180,3 +235,13 @@ async def test_ac37_idempotency_replay(api_client, state_repo, bootstrapped_work
     assert resp2.status_code == 202
     data2 = resp2.json()
     assert data1["id"] == data2["id"]
+
+    # Replay with same Idempotency-Key but different payload -> 409 Conflict
+    resp_conflict = await api_client.post(
+        f"/jobs/{job_id}/retry",
+        headers=headers,
+        content=b'{"altered": true}',
+    )
+    assert resp_conflict.status_code == 409
+    err_data = resp_conflict.json()
+    assert err_data["code"] == "IDEMPOTENCY_KEY_MISMATCH"
