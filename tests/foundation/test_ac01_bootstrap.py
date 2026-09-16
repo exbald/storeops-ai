@@ -49,7 +49,7 @@ async def test_ac01_bootstrap_empty_workspace_and_identity_preservation(api_clie
     assert me_data.uid == admin_uid
     assert len(me_data.memberships) == 1
     assert me_data.memberships[0].workspace_id == workspace.id
-    assert me_data.memberships[0].role in (Role.ADMIN, "ADMIN")
+    assert me_data.memberships[0].role == Role.ADMIN
 
     # Step 5: Read current workspace via GET /workspace
     resp_ws = await api_client.get(
