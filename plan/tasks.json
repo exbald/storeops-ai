@@ -169,7 +169,7 @@
     {
       "id": "T03",
       "title": "CSV ingestion, analytics revisions and metric service",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T01"
