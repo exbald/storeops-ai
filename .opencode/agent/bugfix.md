@@ -28,6 +28,10 @@ permission:
     "gh pr comment*": allow
     "gh pr merge*": deny
     "gh pr review*": deny
+    "gh issue view*": allow
+    "gh issue comment*": allow
+    "gh issue edit*": deny
+    "gh issue close*": deny
     "uv *": allow
     "uvx *": allow
     "python *": allow
