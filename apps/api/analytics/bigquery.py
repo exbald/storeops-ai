@@ -34,11 +34,9 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         source_sha256: str,
         rows: list[dict[str, Any]],
     ) -> int:
-        if self._client is None:
-            raise NotImplementedError(
-                "BigQuery client not available; use DuckDBAnalyticsRepository for local profile"
-            )
-        return len(rows)
+        raise NotImplementedError(
+            "BigQuery adapter commit will be implemented in T12 cloud parity gate"
+        )
 
     async def get_sales_window(
         self,
@@ -46,23 +44,19 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         store_id: UUID,
         start_date: str,
         end_date: str,
-        batch_ids: list[str],
+        batch_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        if self._client is None:
-            raise NotImplementedError(
-                "BigQuery client not available; use DuckDBAnalyticsRepository for local profile"
-            )
-        return []
+        raise NotImplementedError(
+            "BigQuery adapter queries will be implemented in T12 cloud parity gate"
+        )
 
     async def get_latest_inventory(
         self,
         workspace_id: UUID,
         location_ids: list[UUID],
         as_of_time: str,
-        batch_ids: list[str],
+        batch_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        if self._client is None:
-            raise NotImplementedError(
-                "BigQuery client not available; use DuckDBAnalyticsRepository for local profile"
-            )
-        return []
+        raise NotImplementedError(
+            "BigQuery adapter queries will be implemented in T12 cloud parity gate"
+        )

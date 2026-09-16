@@ -62,9 +62,9 @@ def validate_csv_content(
             is_valid=False, errors=errors, row_count=0, parsed_rows=[]
         )
 
-    # 2. Decode UTF-8
+    # 2. Decode UTF-8 (handling BOM if present)
     try:
-        text = csv_bytes.decode("utf-8")
+        text = csv_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
         add_error(1, "file", "ENCODING_ERROR", "CSV file must be UTF-8 encoded")
         return ValidationResult(

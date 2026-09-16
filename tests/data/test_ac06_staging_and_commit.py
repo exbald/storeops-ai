@@ -142,3 +142,30 @@ async def test_ac06_inventory_staging_and_case_normalization(
     assert sprite_inv["quantity"] == 5
     assert sprite_inv["unit"] == "UNIT"
     assert sprite_inv["normalized_units"] == 5
+
+
+@pytest.mark.asyncio
+async def test_ac06_bom_encoded_csv_supported(client, data_setup):
+    admin_headers = data_setup["admin_headers"]
+    upload_csv = data_setup["upload_csv_media"]
+
+    # CSV prefixed with UTF-8 BOM (\xef\xbb\xbf)
+    bom_csv = (
+        b"\xef\xbb\xbfstore_code,sku,business_date,units,revenue,currency\n"
+        b"STR-01,SKU-COKE-330,2026-09-10,10,30.00,SGD\n"
+    )
+
+    media_id = await upload_csv(bom_csv)
+    create_res = await client.post(
+        "/imports",
+        json={"kind": "SALES", "media_id": media_id},
+        headers={**admin_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert create_res.status_code == 202
+    import_id = create_res.json()["resource_id"]
+
+    get_res = await client.get(f"/imports/{import_id}", headers=admin_headers)
+    assert get_res.status_code == 200
+    imp = get_res.json()
+    assert imp["status"] == "VALIDATED"
+    assert imp["error_count"] == 0

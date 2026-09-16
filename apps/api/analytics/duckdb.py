@@ -62,6 +62,14 @@ class DuckDBAnalyticsRepository(AnalyticsRepository):
         rows: list[dict[str, Any]],
     ) -> int:
         async with self._lock:
+            # Check if batch was already committed for this workspace to prevent physical duplicate facts
+            existing = self._con.execute(
+                "SELECT COUNT(*) FROM import_batches WHERE workspace_id = ? AND batch_id = ?",
+                [str(workspace_id), batch_id],
+            ).fetchone()
+            if existing and existing[0] > 0:
+                return len(rows)
+
             now = datetime.now(UTC)
             self._con.execute(
                 """

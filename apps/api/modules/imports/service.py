@@ -118,14 +118,6 @@ class ImportService:
         csv_bytes = await self.blob_repo.read_bytes(payload.media_id)
         source_sha256 = hashlib.sha256(csv_bytes).hexdigest()
 
-        # Deduplication check: per contracts/imports.json:
-        # "Same workspace/kind/source hash returns existing committed import; repeat commits reuse batch_id."
-        existing_committed = await self.import_repo.find_committed_import(
-            workspace_id=workspace_id,
-            kind=payload.kind,
-            source_sha256=source_sha256,
-        )
-
         now = self.clock.now_utc()
 
         # 3. Create Import record
@@ -142,7 +134,7 @@ class ImportService:
             row_count=0,
             error_count=0,
             errors=[],
-            batch_id=existing_committed.batch_id if existing_committed else None,
+            batch_id=None,
             committed_at=None,
             source_sha256=source_sha256,
         )
@@ -253,12 +245,6 @@ class ImportService:
                 f"Import {import_id} not found in workspace {workspace_id}"
             )
 
-        # Check version
-        if import_record.version != command.expected_version:
-            raise ConflictError(
-                f"Version conflict for import {import_id}: expected {command.expected_version}, actual {import_record.version}"
-            )
-
         # Idempotent replay if already committed
         now = self.clock.now_utc()
         if import_record.status == Status4.COMMITTED:
@@ -283,6 +269,12 @@ class ImportService:
             )
             await self.state_repo.create_job_with_outbox(replay_job)
             return replay_job
+
+        # Check version
+        if import_record.version != command.expected_version:
+            raise ConflictError(
+                f"Version conflict for import {import_id}: expected {command.expected_version}, actual {import_record.version}"
+            )
 
         if import_record.status != Status4.VALIDATED:
             raise ConflictError(
