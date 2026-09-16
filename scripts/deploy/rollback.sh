@@ -15,12 +15,13 @@ SERVICE="${1:-}"
 TARGET_REVISION="${2:-}"
 
 usage() {
-    echo "Usage: $0 <api|worker|all> [revision-name]"
+    echo "Usage: $0 <api|worker> [revision-name]"
+    echo "       $0 all"
     echo ""
     echo "Examples:"
     echo "  $0 api storeops-api-00004-abc   # Roll back API to specific revision"
-    echo "  $0 api                          # Interactively select previous revision"
-    echo "  $0 all                          # Roll back both services to previous revisions"
+    echo "  $0 api                          # Roll back API to immediate previous revision"
+    echo "  $0 all                          # Roll back both services to their immediate previous revisions"
     exit 1
 }
 
@@ -88,6 +89,11 @@ case "${SERVICE}" in
         rollback_service "worker" "${TARGET_REVISION}"
         ;;
     all)
+        if [ -n "${TARGET_REVISION}" ]; then
+            echo -e "${RED}ERROR: 'all' rolls back both services to their immediate previous revisions.${NC}"
+            echo "Do not specify a revision name for 'all'. Target 'api' or 'worker' individually to specify a revision."
+            exit 1
+        fi
         rollback_service "api" ""
         rollback_service "worker" ""
         ;;

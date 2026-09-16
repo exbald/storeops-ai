@@ -156,14 +156,16 @@ def run_live_smoke_checks(api_url: str, worker_url: str | None = None) -> list[d
             checks.append({
                 "name": "Private worker isolation",
                 "passed": passed,
-                "detail": f"Worker correctly rejected unauthenticated public ingress with HTTP {e.code}",
+                "detail": f"Worker rejected public ingress with HTTP {e.code}",
             })
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
-            # Connection refused / DNS failure can also indicate private VPC network ingress
+        except (TimeoutError, urllib.error.URLError, OSError) as e:
+            # Internal-only Cloud Run returns 403 or drops connections/times out at GFE
+            reason = str(getattr(e, "reason", e)).lower()
+            is_boundary = isinstance(e, TimeoutError) or any(k in reason for k in ("timed out", "connection reset", "connection refused"))
             checks.append({
                 "name": "Private worker isolation",
-                "passed": True,
-                "detail": f"Worker is not publicly reachable ({e})",
+                "passed": is_boundary,
+                "detail": f"Worker ingress blocked at network boundary ({e})" if is_boundary else f"Worker check failed with unexpected error: {e}",
             })
 
     return checks

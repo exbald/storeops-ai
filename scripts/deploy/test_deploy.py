@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 DEPLOY_SH = ROOT_DIR / "scripts" / "deploy" / "deploy.sh"
 ROLLBACK_SH = ROOT_DIR / "scripts" / "deploy" / "rollback.sh"
@@ -197,3 +199,63 @@ def test_rollback_script_protects_production():
     )
     assert proc.returncode == 1
     assert "appears to be PRODUCTION" in proc.stdout
+
+
+@pytest.mark.asyncio
+async def test_ac41_queue_worker_smoke_handler():
+    """AC-41: Queue and worker smoke execution with lease fencing and job runner."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from storeops_contracts import JobStatus, JobType
+    from storeops_contracts.models import Job, ResourceType
+
+    from apps.api.adapters.state.in_memory import InMemoryStateRepository
+    from apps.api.jobs.runner import JobRunner
+
+    state_repo = InMemoryStateRepository()
+    ws_id = uuid4()
+    job_id = uuid4()
+    now = datetime.now(UTC)
+
+    job = Job(
+        id=job_id,
+        workspace_id=ws_id,
+        version=1,
+        created_at=now,
+        updated_at=now,
+        type=JobType.INVESTIGATE,
+        status=JobStatus.QUEUED,
+        resource_id=uuid4(),
+        resource_type=ResourceType.INVESTIGATION,
+        attempt=1,
+        stage="QUEUED",
+        started_at=None,
+        finished_at=None,
+        error=None,
+        linked_previous_job_id=None,
+        model_id=None,
+        usage=None,
+    )
+
+    await state_repo.create_job_with_outbox(job, outbox_payload={"action": "cloud_smoke_test"})
+    assert len(state_repo.outbox) >= 1
+
+    executed = False
+
+    async def _smoke_handler(j: Job, generation: int):
+        nonlocal executed
+        executed = True
+        assert j.id == job_id
+        assert generation >= 1
+
+    runner = JobRunner(state_repo=state_repo, worker_id="smoke-worker-1")
+    runner.register_handler(job.type.value if hasattr(job.type, "value") else str(job.type), _smoke_handler)
+
+    await runner.execute_job(ws_id, job_id)
+
+    assert executed, "Queue/worker smoke handler must have been executed"
+    fetched = await state_repo.get_job(ws_id, job_id)
+    assert fetched is not None
+    assert fetched.status == JobStatus.SUCCEEDED
+
