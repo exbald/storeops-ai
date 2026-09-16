@@ -21,7 +21,7 @@ class AnalyticsRepository(Protocol):
         store_id: UUID,
         start_date: str,
         end_date: str,
-        batch_ids: list[str],
+        batch_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve sales facts for a store across a frozen set of committed batch IDs."""
         ...
@@ -31,7 +31,7 @@ class AnalyticsRepository(Protocol):
         workspace_id: UUID,
         location_ids: list[UUID],
         as_of_time: str,
-        batch_ids: list[str],
+        batch_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve latest inventory records for locations at or before as_of_time."""
         ...
