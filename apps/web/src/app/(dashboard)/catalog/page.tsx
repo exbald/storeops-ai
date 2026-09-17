@@ -37,9 +37,11 @@ export default function CatalogPage() {
   const [isSavingLocation, setIsSavingLocation] = useState(false);
 
   const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
+    setCatalogError(null);
     try {
       const [prodRes, locRes, promoRes] = await Promise.all([
         apiClient.listProducts(),
@@ -49,8 +51,9 @@ export default function CatalogPage() {
       setProducts(prodRes.items);
       setLocations(locRes.items);
       setPromotions(promoRes.items);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load catalog data:", err);
+      setCatalogError(err?.message || "Failed to load product catalog and locations");
     } finally {
       setLoading(false);
     }
@@ -258,7 +261,7 @@ export default function CatalogPage() {
       key: "type",
       header: "Location Type",
       render: (l) => (
-        <Badge variant={l.type === "DISTRIBUTOR" ? "info" : "default"}>
+        <Badge variant={l.type === "DISTRIBUTOR" ? "info" : "neutral"}>
           {l.type}
         </Badge>
       ),
@@ -267,7 +270,7 @@ export default function CatalogPage() {
       key: "status",
       header: "Status",
       render: (l) => (
-        <Badge variant={l.active ? "success" : "default"}>
+        <Badge variant={l.active ? "success" : "neutral"}>
           {l.active ? "Active" : "Inactive"}
         </Badge>
       ),
@@ -294,6 +297,19 @@ export default function CatalogPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Catalog Load Error Banner */}
+      {catalogError && (
+        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-red-800">Failed to load catalog data</h3>
+            <p className="text-sm text-red-700 mt-1">{catalogError}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={loadData}>
+            Retry
+          </Button>
         </div>
       )}
 

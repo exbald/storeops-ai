@@ -94,6 +94,7 @@ test("StoreOpsClient methods use valid RFC 4122 UUIDs for all identifiers", asyn
     region: "Central",
     format: "CONVENIENCE",
     timezone: "Asia/Singapore",
+    distributor_location_id: null,
   });
   assert.match(store.id, RFC4122_UUID_REGEX, "Store ID must be RFC 4122 UUID");
 
@@ -318,6 +319,7 @@ test("StoreOpsClient wire format: sends Idempotency-Key header on mutating POST 
       region: "North",
       format: "CONVENIENCE",
       timezone: "Asia/Singapore",
+      distributor_location_id: null,
     });
 
     assert.equal(interceptedMethod, "POST");

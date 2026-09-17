@@ -21,6 +21,7 @@ test("StoreOpsClient creates a store and increments list", async () => {
     region: "North",
     format: "SUPERMARKET",
     timezone: "Asia/Singapore",
+    distributor_location_id: null,
   });
   assert.equal(created.code, "STR-TEST-99");
   assert.equal(created.version, 1);

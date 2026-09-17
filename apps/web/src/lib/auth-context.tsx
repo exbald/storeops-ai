@@ -19,6 +19,7 @@ export type UserRole = "ADMIN" | "REP";
 
 export interface AuthContextType {
   user: { id: string; email: string } | null;
+  token: string | null;
   role: UserRole;
   workspaceId: string | null;
   activeWorkspaceName: string;
@@ -32,21 +33,38 @@ export interface AuthContextType {
   signOut: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const isDoublesMode =
+  typeof process !== "undefined" && process.env.NEXT_PUBLIC_USE_DOUBLES === "true";
+const configuredToken =
+  (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN : null) || null;
+
+// In live mode (NEXT_PUBLIC_USE_DOUBLES !== "true"), hardcoded fallback tokens are strictly disabled.
+// Live deployments require NEXT_PUBLIC_AUTH_TOKEN or explicit user authentication.
+const DEFAULT_AUTH_TOKEN =
+  configuredToken || (isDoublesMode ? "storeops-dev-session-token" : null);
+
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<{ id: string; email: string } | null>({
-    id: "usr-admin-001",
-    email: "admin@storeops.local",
-  });
-  const [memberships, setMemberships] = useState<Membership[]>(MOCK_MEMBERSHIPS);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(DEFAULT_WORKSPACE_ID);
+  const [token, setToken] = useState<string | null>(DEFAULT_AUTH_TOKEN);
+  const [user, setUser] = useState<{ id: string; email: string } | null>(
+    DEFAULT_AUTH_TOKEN
+      ? { id: "usr-admin-001", email: "admin@storeops.local" }
+      : null
+  );
+  const [memberships, setMemberships] = useState<Membership[]>(
+    DEFAULT_AUTH_TOKEN ? MOCK_MEMBERSHIPS : []
+  );
+  const [workspaceId, setWorkspaceId] = useState<string | null>(
+    DEFAULT_AUTH_TOKEN ? DEFAULT_WORKSPACE_ID : null
+  );
   const [role, setRole] = useState<UserRole>("ADMIN");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Initialize or fetch /me
+  // Initialize or fetch /me when token is available
   useEffect(() => {
     async function loadMe() {
+      if (!token) return;
       try {
         const me = await apiClient.getMe();
         setUser({ id: me.user_id, email: me.email });
@@ -60,10 +78,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadMe();
-  }, []);
+  }, [token]);
+
+  // Sync workspaceId and authToken to apiClient singleton
+  useEffect(() => {
+    apiClient.setWorkspaceId(workspaceId);
+    apiClient.setAuthToken(token);
+  }, [workspaceId, token]);
 
   const switchWorkspace = useCallback((newId: string) => {
     setWorkspaceId(newId);
+    apiClient.setWorkspaceId(newId);
     const m = memberships.find((mem) => mem.workspace_id === newId);
     if (m) {
       setRole((m.role as UserRole) || "ADMIN");
@@ -74,6 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setWorkspaceId(null);
     setMemberships([]);
+    setToken(null);
+    apiClient.setWorkspaceId(null);
+    apiClient.setAuthToken(null);
   }, []);
 
   const activeMembership = memberships.find((m) => m.workspace_id === workspaceId);
@@ -88,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         role,
         workspaceId,
+        token,
         activeWorkspaceName,
         memberships,
         isAdmin,

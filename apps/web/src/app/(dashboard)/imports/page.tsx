@@ -28,14 +28,17 @@ export default function ImportsPage() {
   // Active Inspect Modal
   const [inspectingImport, setInspectingImport] = useState<Import | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [importsError, setImportsError] = useState<string | null>(null);
 
   const loadImports = async () => {
     setLoading(true);
+    setImportsError(null);
     try {
       const res = await apiClient.listImports();
       setImports(res.items);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load imports:", err);
+      setImportsError(err?.message || "Failed to load imports feed");
     } finally {
       setLoading(false);
     }
@@ -201,6 +204,19 @@ export default function ImportsPage() {
         </div>
       )}
 
+      {/* Imports Load Error Banner */}
+      {importsError && (
+        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-red-800">Failed to load imports</h3>
+            <p className="text-sm text-red-700 mt-1">{importsError}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={loadImports}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -318,13 +334,8 @@ export default function ImportsPage() {
                 <div className="max-h-48 overflow-y-auto space-y-2 border border-red-200 rounded p-2 bg-red-50">
                   {inspectingImport.errors.map((err, idx) => (
                     <div key={idx} className="text-xs text-red-900 border-b border-red-100 pb-1">
-                      <span className="font-bold">Row {err.row_number}: </span>
+                      <span className="font-bold">Row {err.row} ({err.field}): </span>
                       <span>[{err.code}] {err.message}</span>
-                      {err.raw_line && (
-                        <code className="block mt-1 font-mono text-[10px] text-gray-600 bg-white p-1 rounded">
-                          {err.raw_line}
-                        </code>
-                      )}
                     </div>
                   ))}
                 </div>
