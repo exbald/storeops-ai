@@ -11,6 +11,7 @@ from storeops_contracts.models import (
     Investigation,
     Outcome,
     PolicyVersion,
+    Product,
     Promotion,
     State,
     Status5,
@@ -20,21 +21,26 @@ from storeops_contracts.models import (
     ZoneKind,
 )
 
-from apps.api.ai.gateway import DeterministicModelGateway
-from apps.api.ai.schemas import ProposedCheck, VerificationProposal
+from apps.api.ai.schemas import (
+    Detection,
+    ImageObservation,
+    ProposedCheck,
+    VerificationProposal,
+)
 from apps.api.core.auth import UserContext
 from apps.api.modules.verification.dependencies import set_model_gateway
 from apps.api.modules.verification.repository import InMemoryVerificationRepository
 from apps.api.modules.visits.repository import InMemoryVisitRepository
-from tests.verification.conftest import FrozenClock
+from tests.verification.conftest import FrozenClock, ScenarioModelGateway
 
 
 @pytest.mark.asyncio
-async def test_ac17_verification_pass_atomic_resolution(
+async def test_ac17_verification_pass_saga_resolution(
     test_workspace_id: UUID,
     rep_user: UserContext,
     sample_visit: Visit,
     sample_store: Store,
+    sample_product: Product,
     sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
     sample_investigation_accepted: tuple[Investigation, list[Action]],
     frozen_clock: FrozenClock,
@@ -48,7 +54,7 @@ async def test_ac17_verification_pass_atomic_resolution(
 
     Verify:
     1. Every rule checked once.
-    2. Code derives PASS.
+    2. Code derives PASS from compliant multimodal observations.
     3. Actions set VERIFIED, investigation set RESOLVED, visit set CLOSED, report saved.
     4. Exact same report/verification accessible via GET endpoints.
     """
@@ -72,19 +78,59 @@ async def test_ac17_verification_pass_atomic_resolution(
         captured_at=now - timedelta(minutes=1),
     )
 
-    # Register deterministic proposal
-    gateway = DeterministicModelGateway()
+    # Register deterministic observations and proposal
+    # 1st observation: shelf with 3 front-facing detections of sample_product
+    obs_shelf = ImageObservation(
+        media_id=media1.id,
+        zone_id="zone-shelf-1",
+        zone_kind="SHELF",
+        quality="CLEAR",
+        coverage="FULL",
+        occluded=False,
+        detections=[
+            Detection(
+                product_id=sample_product.id,
+                identity="CLEAR",
+                view="FRONT",
+                box=[100, 100, 400, 400],
+                label="Sea Salt Chips 150g",
+            )
+            for _ in range(3)
+        ],
+        display="UNKNOWN",
+        limitations=[],
+    )
+    # 2nd observation: endcap promotional display present
+    obs_endcap = ImageObservation(
+        media_id=media2.id,
+        zone_id="zone-endcap-1",
+        zone_kind="DISPLAY",
+        quality="CLEAR",
+        coverage="FULL",
+        occluded=False,
+        detections=[],
+        display="PRESENT",
+        limitations=[],
+    )
+
+    gateway = ScenarioModelGateway()
+    gateway.register_queue(ImageObservation, [obs_shelf, obs_endcap])
     gateway.register_response(
         VerificationProposal,
         VerificationProposal(
             checks=[
                 ProposedCheck(
-                    rule_id=r.rule_id,
+                    rule_id=pol_ver.rules[0].rule_id,
                     result="PASS",
                     evidence_ids=[media1.id],
-                    explanation=f"Rule {r.rule_id} observed compliant in verification imagery.",
-                )
-                for r in pol_ver.rules
+                    explanation="Rule MIN_FACINGS observed compliant in verification imagery.",
+                ),
+                ProposedCheck(
+                    rule_id=pol_ver.rules[1].rule_id,
+                    result="PASS",
+                    evidence_ids=[media2.id],
+                    explanation="Rule REQUIRED_DISPLAY observed compliant in verification imagery.",
+                ),
             ],
             requested_retakes=[],
         ),

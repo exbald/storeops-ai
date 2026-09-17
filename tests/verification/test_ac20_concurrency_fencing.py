@@ -10,10 +10,12 @@ from storeops_contracts.models import (
     Action,
     Investigation,
     PolicyVersion,
+    Product,
     Promotion,
     State,
     Store,
     Visit,
+    ZoneKind,
 )
 
 from apps.api.core.auth import UserContext
@@ -156,6 +158,7 @@ async def test_saga_compensation_on_visit_update_failure(
     rep_user: UserContext,
     sample_visit: Visit,
     sample_store: Store,
+    sample_product: Product,
     sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
     sample_investigation_accepted: tuple[Investigation, list[Action]],
     frozen_clock: FrozenClock,
@@ -165,33 +168,85 @@ async def test_saga_compensation_on_visit_update_failure(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC20/Saga: If visit update fails during atomic PASS resolution, compensation rolls back investigation."""
-    from apps.api.ai.gateway import DeterministicModelGateway
-    from apps.api.ai.schemas import ProposedCheck, VerificationProposal
+    """AC20/Saga: If visit update fails during saga-coordinated PASS resolution, compensation rolls back investigation."""
+    from apps.api.ai.schemas import (
+        Detection,
+        ImageObservation,
+        ProposedCheck,
+        VerificationProposal,
+    )
     from apps.api.modules.verification.dependencies import set_model_gateway
+    from tests.verification.conftest import ScenarioModelGateway
 
     inv, _actions = sample_investigation_accepted
     _promo, pol_ver = sample_promotion_and_policy
     now = frozen_clock.now_utc()
 
-    media = await make_after_media(
+    media1 = await make_after_media(
         sha256="e" * 64,
-        filename="me.jpg",
+        filename="me1.jpg",
+        zone_id="zone-shelf-1",
+        zone_kind=ZoneKind.SHELF,
         captured_at=now - timedelta(minutes=2),
     )
+    media2 = await make_after_media(
+        sha256="f" * 64,
+        filename="me2.jpg",
+        zone_id="zone-endcap-1",
+        zone_kind=ZoneKind.DISPLAY,
+        captured_at=now - timedelta(minutes=1),
+    )
 
-    gateway = DeterministicModelGateway()
+    obs_shelf = ImageObservation(
+        media_id=media1.id,
+        zone_id="zone-shelf-1",
+        zone_kind="SHELF",
+        quality="CLEAR",
+        coverage="FULL",
+        occluded=False,
+        detections=[
+            Detection(
+                product_id=sample_product.id,
+                identity="CLEAR",
+                view="FRONT",
+                box=[100, 100, 400, 400],
+                label="Sea Salt Chips 150g",
+            )
+            for _ in range(3)
+        ],
+        display="UNKNOWN",
+        limitations=[],
+    )
+    obs_endcap = ImageObservation(
+        media_id=media2.id,
+        zone_id="zone-endcap-1",
+        zone_kind="DISPLAY",
+        quality="CLEAR",
+        coverage="FULL",
+        occluded=False,
+        detections=[],
+        display="PRESENT",
+        limitations=[],
+    )
+
+    gateway = ScenarioModelGateway()
+    gateway.register_queue(ImageObservation, [obs_shelf, obs_endcap])
     gateway.register_response(
         VerificationProposal,
         VerificationProposal(
             checks=[
                 ProposedCheck(
-                    rule_id=r.rule_id,
+                    rule_id=pol_ver.rules[0].rule_id,
                     result="PASS",
-                    evidence_ids=[media.id],
-                    explanation=f"Compliant {r.rule_id}",
-                )
-                for r in pol_ver.rules
+                    evidence_ids=[media1.id],
+                    explanation=f"Compliant {pol_ver.rules[0].rule_id}",
+                ),
+                ProposedCheck(
+                    rule_id=pol_ver.rules[1].rule_id,
+                    result="PASS",
+                    evidence_ids=[media2.id],
+                    explanation=f"Compliant {pol_ver.rules[1].rule_id}",
+                ),
             ],
             requested_retakes=[],
         ),
@@ -214,7 +269,7 @@ async def test_saga_compensation_on_visit_update_failure(
         f"/investigations/{inv.id}/verify",
         json={
             "expected_version": inv.version,
-            "after_media_ids": [str(media.id)],
+            "after_media_ids": [str(media1.id), str(media2.id)],
         },
         headers={**auth_headers, "Idempotency-Key": "idem-saga-fail"},
     )

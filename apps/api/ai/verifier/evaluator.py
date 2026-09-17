@@ -174,25 +174,19 @@ class ExecutionVerifier:
                     )
 
             # Code safety predicate check: verify predicate consistency per specs/05-ai.md:78
-            # When structured detections or explicit display statuses exist, code predicate enforces bounds.
+            # Deterministic code predicates ALWAYS enforce bounds.
+            # A model proposal cannot claim PASS unless code predicates confirm PASS from observations.
             rule = frozen_rule_map[rid]
-            has_structured_observations = any(
-                obs.detections or obs.display != "UNKNOWN" or obs.quality != "CLEAR" or obs.occluded
-                for obs in observations
+            pred_res, _, pred_exp = evaluate_rule_observation(
+                rule=rule,
+                observations=observations,
+                matching_evidence_ids=check_proposal.evidence_ids,
             )
-            effective_result = check_proposal.result
-            if has_structured_observations:
-                pred_res, _, pred_exp = evaluate_rule_observation(
-                    rule=rule,
-                    observations=observations,
-                    matching_evidence_ids=check_proposal.evidence_ids,
-                )
-                if check_proposal.result == "PASS" and pred_res.value != "PASS":
-                    effective_result = pred_res.value
-                    explanation = f"[Predicate Override: {pred_exp}] {check_proposal.explanation}"
-                else:
-                    explanation = check_proposal.explanation
+            if check_proposal.result == "PASS" and pred_res.value != "PASS":
+                effective_result = pred_res.value
+                explanation = f"[Predicate Override: {pred_exp}] {check_proposal.explanation}"
             else:
+                effective_result = check_proposal.result
                 explanation = check_proposal.explanation
 
             resolved_eids = (

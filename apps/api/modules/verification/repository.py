@@ -74,8 +74,8 @@ class InMemoryVerificationRepository:
             for (w_id, _), v in self._verifications.items()
             if w_id == workspace_id and v.investigation_id == investigation_id
         ]
-        # Sort chronologically by created_at descending
-        matched.sort(key=lambda x: x.created_at, reverse=True)
+        # Sort chronologically by created_at descending, with id as deterministic tie-break per SEMANTICS.md
+        matched.sort(key=lambda x: (x.created_at, str(x.id)), reverse=True)
 
         start_index = 0
         if cursor:

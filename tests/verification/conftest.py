@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -41,6 +42,7 @@ from storeops_contracts.models import (
 
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
 from apps.api.adapters.state.in_memory import InMemoryStateRepository
+from apps.api.ai.gateway import DeterministicModelGateway, ModelSchemaError
 from apps.api.core.auth import (
     UserContext,
     set_state_repository,
@@ -551,3 +553,45 @@ def make_after_media(
         return await memory_catalog_repo.create_media(m)
 
     return _make
+
+
+class ScenarioModelGateway(DeterministicModelGateway):
+    """Deterministic gateway supporting sequenced or schema-registered responses."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._queues: dict[type[Any], list[Any]] = {}
+
+    def register_queue(self, schema_type: type[Any], responses: list[Any]) -> None:
+        self._queues[schema_type] = list(responses)
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        response_schema: type[Any],
+        images: list[bytes] | None = None,
+        pdfs: list[bytes] | None = None,
+        thinking_budget: str | None = None,
+    ) -> Any:
+        self.call_history.append(
+            {
+                "prompt": prompt,
+                "response_schema": response_schema,
+                "images_count": len(images) if images else 0,
+                "pdfs_count": len(pdfs) if pdfs else 0,
+                "thinking_budget": thinking_budget,
+            }
+        )
+        if self._queues.get(response_schema):
+            resp = self._queues[response_schema].pop(0)
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
+        if response_schema in self._registry:
+            resp = self._registry[response_schema]
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
+        raise ModelSchemaError(
+            f"No deterministic response registered for schema {response_schema.__name__} in ScenarioModelGateway."
+        )

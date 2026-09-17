@@ -11,6 +11,7 @@ from storeops_contracts.models import (
     Investigation,
     Outcome,
     PolicyVersion,
+    Product,
     Promotion,
     State,
     Status5,
@@ -20,7 +21,12 @@ from storeops_contracts.models import (
 )
 
 from apps.api.ai.gateway import DeterministicModelGateway
-from apps.api.ai.schemas import ProposedCheck, VerificationProposal
+from apps.api.ai.schemas import (
+    Detection,
+    ImageObservation,
+    ProposedCheck,
+    VerificationProposal,
+)
 from apps.api.core.auth import UserContext
 from apps.api.modules.verification.dependencies import set_model_gateway
 from apps.api.modules.verification.repository import InMemoryVerificationRepository
@@ -220,6 +226,7 @@ async def test_ac18_mixed_pass_fail_derives_partial(
     rep_user: UserContext,
     sample_visit: Visit,
     sample_store: Store,
+    sample_product: Product,
     sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
     sample_investigation_accepted: tuple[Investigation, list[Action]],
     frozen_clock: FrozenClock,
@@ -240,6 +247,7 @@ async def test_ac18_mixed_pass_fail_derives_partial(
     media = await make_after_media(
         sha256="6" * 64,
         filename="after6.jpg",
+        zone_id="zone-shelf-1",
         captured_at=now - timedelta(minutes=4),
     )
 
@@ -258,7 +266,29 @@ async def test_ac18_mixed_pass_fail_derives_partial(
             explanation="Display missing.",
         ),
     ]
+    obs_shelf = ImageObservation(
+        media_id=media.id,
+        zone_id="zone-shelf-1",
+        zone_kind="SHELF",
+        quality="CLEAR",
+        coverage="FULL",
+        occluded=False,
+        detections=[
+            Detection(
+                product_id=sample_product.id,
+                identity="CLEAR",
+                view="FRONT",
+                box=[100, 100, 400, 400],
+                label="Sea Salt Chips 150g",
+            )
+            for _ in range(3)
+        ],
+        display="UNKNOWN",
+        limitations=[],
+    )
+
     gateway = DeterministicModelGateway()
+    gateway.register_response(ImageObservation, obs_shelf)
     gateway.register_response(
         VerificationProposal,
         VerificationProposal(checks=custom_checks, requested_retakes=[]),
