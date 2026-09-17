@@ -462,7 +462,7 @@
     {
       "id": "T09",
       "title": "Execution verifier and atomic resolution",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T04",
