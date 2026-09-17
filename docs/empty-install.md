@@ -1,6 +1,6 @@
 # StoreOps: Clean Installation & Empty Workspace Acceptance Guide
 
-This guide describes how to deploy, initialize, and accept the StoreOps Autonomous Retail Operations Intelligence MVP from an empty install, without importing any sample fixtures, evaluation labels, or demo seed data (conforming to **AC01**, **AC23**, **AC24**, **AC26**, and **AC31**).
+This guide describes how to deploy, initialize, and accept the StoreOps Autonomous Retail Operations Intelligence MVP from an empty install, without importing any sample fixtures, evaluation labels, or demo seed data (conforming to **AC01**, **AC24**, **AC26**, and **AC31**; related empty-state verification in **AC23**).
 
 ---
 
@@ -189,10 +189,12 @@ curl -s -H "Authorization: Bearer rep-usr-101" \
 ```
 
 In the Web UI (`http://127.0.0.1:3000`), navigating to the dashboard renders honest empty state strings:
-- *"No sales data"* (for empty revenue/sales metrics)
-- *"Stock unknown"* (for inventory availability)
-- *"Insufficient comparison data"* (for opportunity projections)
-- *"No active promotions"*
+- *"No sales data"* (for empty revenue/sales metrics via `formatSales` and `formatRevenue`)
+- *"Stock unknown"* (for unobserved inventory metrics via `formatStock`)
+- *"Insufficient comparison data"* (for opportunity projections via `formatOpportunityProxy`)
+- *"No stores found. Create your first store to get started."* (on the stores management view)
+- *"No products in catalog. Add your first product to configure merchandising rules."* (on the catalog view)
+- *"No promotions or agreements registered. Create your first promotion to extract policy rules."* (on the promotions view)
 
 ---
 
