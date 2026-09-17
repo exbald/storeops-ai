@@ -260,3 +260,58 @@ async def test_ac27_inventory_as_of_parity(
     assert "ORDER BY i.observed_at DESC, b.committed_at DESC, i.batch_id DESC" in sql
     assert "WHERE rn = 1" in sql
     assert params["as_of_time"] == "2026-09-10T18:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_ac27_bigquery_commit_decimal_serialization():
+    """AC27: BigQuery commit serializes currency as exact string Decimal without float precision loss."""
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    repo = BigQueryAnalyticsRepository(
+        project_id="test-proj",
+        dataset_id="disposable_test_ac27",
+        allow_prod=False,
+    )
+    mock_client = MagicMock()
+    # Idempotency check query returns empty (no previous batch)
+    mock_query_job = MagicMock()
+    mock_query_job.result.return_value = []
+    mock_client.query.return_value = mock_query_job
+    repo._client = mock_client
+
+    workspace_id = uuid4()
+    import_id = uuid4()
+    sales_rows = [
+        {
+            "store_id": uuid4(),
+            "sku": "SKU-TEST-001",
+            "business_date": "2026-09-15",
+            "units": 10,
+            "revenue": Decimal("199.95"),
+            "currency": "EUR",
+        }
+    ]
+
+    mock_bq_module = MagicMock()
+    with patch.dict(sys.modules, {"google.cloud.bigquery": mock_bq_module}):
+        count = await repo.commit_import_batch(
+            workspace_id=workspace_id,
+            batch_id="BATCH-DECIMAL-001",
+            kind="SALES",
+            import_id=import_id,
+            source_sha256="abc123sha",
+            rows=sales_rows,
+        )
+    assert count == 1
+
+    # Verify insert_rows_json called for sales_facts with string revenue
+    assert mock_client.insert_rows_json.call_count == 2
+    sales_insert_call = mock_client.insert_rows_json.call_args_list[1]
+    table_id, inserted_rows = sales_insert_call[0]
+    assert table_id == "test-proj.disposable_test_ac27.sales_facts"
+    assert len(inserted_rows) == 1
+    assert inserted_rows[0]["revenue"] == "199.95"
+    assert isinstance(inserted_rows[0]["revenue"], str)
+    assert not isinstance(inserted_rows[0]["revenue"], float)
+

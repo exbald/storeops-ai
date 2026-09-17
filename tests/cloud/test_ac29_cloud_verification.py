@@ -149,6 +149,7 @@ async def test_ac29_firestore_outbox_drain_path():
     """AC29: drain_outbox queries and updates Firestore outbox collection in CLOUD profile."""
     from unittest.mock import AsyncMock, MagicMock
 
+    from apps.api.adapters.state.firestore import FirestoreStateRepository
     from apps.api.worker import drain_outbox
 
     mock_doc = MagicMock()
@@ -167,9 +168,8 @@ async def test_ac29_firestore_outbox_drain_path():
     mock_query = MagicMock()
     mock_query.order_by.return_value.stream = _async_stream
     mock_collection.where.return_value = mock_query
-
     mock_firestore_repo = MagicMock()
-    del mock_firestore_repo.outbox  # Firestore repo does not have in-memory outbox list
+    mock_firestore_repo.__class__ = FirestoreStateRepository
     mock_firestore_repo.db.collection.return_value = mock_collection
 
     mock_runner = MagicMock()

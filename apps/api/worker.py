@@ -40,14 +40,12 @@ async def drain_outbox(state_repo: StateRepository, runner: JobRunner) -> int:
     dispatched_count = 0
 
     # CLOUD / Firestore path
-    if isinstance(state_repo, FirestoreStateRepository) or (
-        hasattr(state_repo, "db") and state_repo.db is not None and not isinstance(getattr(state_repo, "outbox", None), list)
-    ):
+    if isinstance(state_repo, FirestoreStateRepository):
         try:
             outbox_ref = (
                 state_repo.db.collection("outbox")
                 .where("dispatched", "==", False)
-                .order_by("created_at")
+                .order_by("created_at", direction="ASCENDING")
             )
             async for doc in outbox_ref.stream():
                 data = doc.to_dict()

@@ -13,7 +13,7 @@ Both repositories implement the `AnalyticsRepository` port (`apps/api/ports/anal
 | **`commit_import_batch`** | In-memory append with idempotency check on `(workspace_id, batch_id)`. | Transactional batch insert into `import_batches` and facts tables with idempotency verification query. | **IDENTICAL** |
 | **`get_sales_window`** | Standard SQL `ROW_NUMBER()` window function partitioned by `(workspace_id, store_id, sku, business_date)`. | Google Cloud BigQuery standard SQL with identical window definition and partition keys. | **IDENTICAL** |
 | **`get_latest_inventory`** | Standard SQL `ROW_NUMBER()` window function partitioned by `(workspace_id, location_id, sku)`. | Google Cloud BigQuery standard SQL with `UNNEST(@location_ids)` and identical partition keys. | **IDENTICAL** |
-| **`get_active_batches`** | Query ordered by `committed_at DESC`. | Query ordered by `committed_at DESC`. | **IDENTICAL** |
+| **`get_active_batches`** | Query ordered by `committed_at DESC, batch_id DESC`. | Query ordered by `committed_at DESC, batch_id DESC`. | **IDENTICAL** |
 
 ---
 

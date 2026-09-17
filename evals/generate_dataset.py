@@ -686,7 +686,7 @@ SCENARIOS_DATA = [
 def generate(force: bool = False):
     if (
         not force
-        and not os.environ.get("OVERWRITE_FROZEN_EVALS")
+        and os.environ.get("OVERWRITE_FROZEN_EVALS") != "1"
         and SCENARIOS_DIR.exists()
         and any(SCENARIOS_DIR.glob("*.json"))
     ):
