@@ -516,7 +516,7 @@
     {
       "id": "T10",
       "title": "Integrate every slice and harden regressions",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T08",
