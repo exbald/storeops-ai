@@ -109,7 +109,11 @@ async def test_ac22_provider_timeout_permanent_failure_no_fake_success(
     int_state_repo: StateRepository,
     workspace_a_id: UUID,
 ):
-    """AC22: Permanent model/provider failure yields explicit incomplete/failed state, never fake success."""
+    """AC22: Permanent model/provider failure yields explicit incomplete/failed state, never fake success.
+
+    Note: The provider retry and backoff loop is exercised in slice tests (tests/ai/test_ac39_gateway.py);
+    this integration regression validates state persistence, API retrieval, and no fake-success fallback.
+    """
     job_id = uuid4()
     now = datetime.now(UTC)
 
@@ -201,7 +205,11 @@ async def test_ac33_model_schema_repair_failure_ends_incomplete(
     int_state_repo: StateRepository,
     workspace_a_id: UUID,
 ):
-    """AC33: When model returns invalid JSON and 1-shot repair fails, job ends FAILED without false resolution."""
+    """AC33: When model returns invalid JSON and 1-shot repair fails, job ends FAILED without false resolution.
+
+    Note: The 1-shot repair cycle and schema parsing are exercised in slice tests (tests/ai/test_ac39_schemas.py);
+    this integration regression validates job failure transitions, error preservation, and absence of premature resolution.
+    """
     job_id = uuid4()
     now = datetime.now(UTC)
 

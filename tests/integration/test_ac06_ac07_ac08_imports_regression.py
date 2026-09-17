@@ -255,7 +255,7 @@ async def test_ac08_commit_idempotency_and_revisions(
         headers={**admin_a_headers, "Idempotency-Key": str(uuid4())},
         json={"expected_version": 1},
     )
-    assert commit1_retry.status_code in [200, 202]
+    assert commit1_retry.status_code == 202
 
     facts_after_retry = await int_analytics_repo.get_sales_window(
         workspace_id=workspace_a_id,

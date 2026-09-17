@@ -513,8 +513,24 @@ async def test_ac17_verification_pass_atomic_closure(
     assert get_ver.status_code == 200
     ver_data = get_ver.json()
     assert ver_data["result"] == "PASS"
+    assert ver_data["report_id"] is not None
+
+    # Verify report is generated with PASS outcome
+    get_report = await integration_client.get(f"/reports/{ver_data['report_id']}", headers=rep_a_headers)
+    assert get_report.status_code == 200
+    report_data = get_report.json()
+    assert report_data["outcome"] == "PASS"
 
     # Verify visit is closed
     get_visit = await integration_client.get(f"/visits/{setup['visit']['id']}", headers=rep_a_headers)
     assert get_visit.status_code == 200
     assert get_visit.json()["status"] == "CLOSED"
+
+    # Verify investigation is resolved and actions are marked VERIFIED
+    get_inv = await integration_client.get(f"/investigations/{inv['id']}", headers=rep_a_headers)
+    assert get_inv.status_code == 200
+    inv_data = get_inv.json()
+    assert inv_data["state"] == "RESOLVED"
+    assert len(inv_data["actions"]) > 0
+    for act in inv_data["actions"]:
+        assert act["status"] == "VERIFIED"
