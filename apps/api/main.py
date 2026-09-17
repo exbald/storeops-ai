@@ -42,6 +42,7 @@ from apps.api.ports.state import StateRepository, VersionConflictError
 from apps.api.modules.catalog.router import router as catalog_router
 from apps.api.modules.imports.router import router as imports_router
 from apps.api.modules.policies.router import router as policies_router
+from apps.api.modules.verification.router import router as verification_router
 from apps.api.modules.visits.router import router as visits_router
 
 
@@ -267,5 +268,6 @@ async def retry_job(
 app.include_router(catalog_router)
 app.include_router(imports_router)
 app.include_router(policies_router)
+app.include_router(verification_router)
 app.include_router(visits_router)
 
