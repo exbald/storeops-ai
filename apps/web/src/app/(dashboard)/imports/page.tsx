@@ -28,14 +28,17 @@ export default function ImportsPage() {
   // Active Inspect Modal
   const [inspectingImport, setInspectingImport] = useState<Import | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [importsError, setImportsError] = useState<string | null>(null);
 
   const loadImports = async () => {
     setLoading(true);
+    setImportsError(null);
     try {
       const res = await apiClient.listImports();
       setImports(res.items);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load imports:", err);
+      setImportsError(err?.message || "Failed to load imports feed");
     } finally {
       setLoading(false);
     }
@@ -198,6 +201,19 @@ export default function ImportsPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Imports Load Error Banner */}
+      {importsError && (
+        <div role="alert" className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-red-800">Failed to load imports</h3>
+            <p className="text-sm text-red-700 mt-1">{importsError}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={loadImports}>
+            Retry
+          </Button>
         </div>
       )}
 

@@ -24,8 +24,10 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import ReportDetailPage from "../src/app/(dashboard)/reports/[id]/page";
 import VisitDetailPage from "../src/app/(dashboard)/visits/[id]/page";
 import InvestigationDetailPage from "../src/app/(dashboard)/investigations/[id]/page";
+import CatalogPage from "../src/app/(dashboard)/catalog/page";
+import ImportsPage from "../src/app/(dashboard)/imports/page";
 import DashboardLayout from "../src/app/(dashboard)/layout";
-import { AuthProvider } from "../src/lib/auth-context";
+import { AuthProvider, AuthContext } from "../src/lib/auth-context";
 import { apiClient, VersionConflictError } from "../src/lib/api-client";
 import type { Report } from "@storeops/contracts";
 
@@ -56,15 +58,19 @@ function renderWithContext(component: React.ReactElement, params: Record<string,
       await act(async () => {
         root.render(
           React.createElement(
-            AppRouterContext.Provider,
-            { value: mockRouter },
+            AuthProvider,
+            null,
             React.createElement(
-              SearchParamsContext.Provider,
-              { value: new URLSearchParams() },
+              AppRouterContext.Provider,
+              { value: mockRouter },
               React.createElement(
-                PathParamsContext.Provider,
-                { value: params },
-                component
+                SearchParamsContext.Provider,
+                { value: new URLSearchParams() },
+                React.createElement(
+                  PathParamsContext.Provider,
+                  { value: params },
+                  component
+                )
               )
             )
           )
@@ -279,8 +285,71 @@ test("InvestigationDetailPage: handles OCC version conflict (409) when claiming 
   }
 });
 
-test("DashboardLayout: renders 'Sign In Required' when signed out", async () => {
-  // Test DashboardLayout with AuthProvider wrapping an inner child
+test("CatalogPage: renders error alert banner when products fetch fails", async () => {
+  apiClient.setUseDoubles(true);
+  const origListProducts = apiClient.listProducts.bind(apiClient);
+  apiClient.listProducts = async () => {
+    throw new Error("Product database network timeout");
+  };
+
+  const { container, mount, unmount } = renderWithContext(
+    React.createElement(CatalogPage)
+  );
+
+  try {
+    await mount();
+
+    assert.ok(
+      container.innerHTML.includes("Failed to load catalog data"),
+      "Must render explicit catalog error banner"
+    );
+    assert.ok(
+      container.innerHTML.includes("Product database network timeout"),
+      "Must render actual error message"
+    );
+    assert.ok(
+      container.innerHTML.includes("Retry"),
+      "Must render Retry button"
+    );
+  } finally {
+    apiClient.listProducts = origListProducts;
+    await unmount();
+  }
+});
+
+test("ImportsPage: renders error alert banner when imports fetch fails", async () => {
+  apiClient.setUseDoubles(true);
+  const origListImports = apiClient.listImports.bind(apiClient);
+  apiClient.listImports = async () => {
+    throw new Error("Imports feed connection refused");
+  };
+
+  const { container, mount, unmount } = renderWithContext(
+    React.createElement(ImportsPage)
+  );
+
+  try {
+    await mount();
+
+    assert.ok(
+      container.innerHTML.includes("Failed to load imports"),
+      "Must render explicit imports error banner"
+    );
+    assert.ok(
+      container.innerHTML.includes("Imports feed connection refused"),
+      "Must render actual error message"
+    );
+    assert.ok(
+      container.innerHTML.includes("Retry"),
+      "Must render Retry button"
+    );
+  } finally {
+    apiClient.listImports = origListImports;
+    await unmount();
+  }
+});
+
+test("DashboardLayout: renders navigation and children when authenticated", async () => {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -289,8 +358,24 @@ test("DashboardLayout: renders 'Sign In Required' when signed out", async () => 
     await act(async () => {
       root.render(
         React.createElement(
-          AuthProvider,
-          null,
+          AuthContext.Provider,
+          {
+            value: {
+              user: { id: "usr-admin-001", email: "admin@storeops.local" },
+              token: "mock-session-token",
+              workspaceId: "00000000-0000-0000-0000-000000000001",
+              role: "ADMIN",
+              isAdmin: true,
+              isRep: false,
+              activeWorkspaceName: "Apex Retail Singapore",
+              memberships: [],
+              isLoading: false,
+              isUnprovisioned: false,
+              switchWorkspace: () => {},
+              setRole: () => {},
+              signOut: () => {},
+            },
+          },
           React.createElement(
             AppRouterContext.Provider,
             { value: mockRouter },
@@ -304,8 +389,64 @@ test("DashboardLayout: renders 'Sign In Required' when signed out", async () => 
       );
     });
 
-    // In doubles test mode, AuthProvider defaults to signed-in dev token
     assert.ok(container.innerHTML.includes("StoreOps"), "Layout renders StoreOps brand");
+    assert.ok(container.innerHTML.includes("Protected Content"), "Layout renders child content when authenticated");
+  } finally {
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  }
+});
+
+test("DashboardLayout: renders 'Sign In Required' alert card when signed out (token and user are null)", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        React.createElement(
+          AuthContext.Provider,
+          {
+            value: {
+              user: null,
+              token: null,
+              workspaceId: null,
+              role: "REP",
+              isAdmin: false,
+              isRep: true,
+              activeWorkspaceName: "",
+              memberships: [],
+              isLoading: false,
+              isUnprovisioned: false,
+              switchWorkspace: () => {},
+              setRole: () => {},
+              signOut: () => {},
+            },
+          },
+          React.createElement(
+            AppRouterContext.Provider,
+            { value: mockRouter },
+            React.createElement(
+              DashboardLayout,
+              null,
+              React.createElement("div", { id: "protected-content" }, "Protected Content")
+            )
+          )
+        )
+      );
+    });
+
+    assert.ok(
+      container.innerHTML.includes("Sign In Required"),
+      "Must render explicit 'Sign In Required' card when unauthenticated"
+    );
+    assert.ok(
+      !container.innerHTML.includes("Protected Content"),
+      "Must block protected child content when unauthenticated"
+    );
   } finally {
     await act(async () => {
       root.unmount();

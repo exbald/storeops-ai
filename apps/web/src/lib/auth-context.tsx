@@ -43,7 +43,7 @@ const configuredToken =
 const DEFAULT_AUTH_TOKEN =
   configuredToken || (isDoublesMode ? "storeops-dev-session-token" : null);
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(DEFAULT_AUTH_TOKEN);

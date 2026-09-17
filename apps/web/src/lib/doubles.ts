@@ -41,10 +41,14 @@ export const DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
 export const SECONDARY_WORKSPACE_ID = "00000000-0000-0000-0000-000000000002";
 
 export function generateUuid(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
   }
-  return "00000000-0000-4000-8000-" + Math.random().toString(16).substring(2, 14).padStart(12, "0");
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 export const MOCK_MEMBERSHIPS: Membership[] = [

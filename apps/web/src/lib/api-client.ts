@@ -91,9 +91,17 @@ export class StoreOpsClient {
   private baseUrl: string;
   private getAuthToken?: () => Promise<string | null>;
   private getWorkspaceId: () => string | null;
-  public readonly useDoubles: boolean;
+  private _useDoubles: boolean;
   private currentWorkspaceId: string | null = null;
   private currentAuthToken: string | null = null;
+
+  public get useDoubles(): boolean {
+    return this._useDoubles;
+  }
+
+  public setUseDoubles(useDoubles: boolean): void {
+    this._useDoubles = useDoubles;
+  }
 
   // In-memory state for isolated test double operation (AC-38)
   private doubleStores: Store[] = [...MOCK_STORES];
@@ -120,12 +128,10 @@ export class StoreOpsClient {
       config.baseUrl ||
       (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_URL || "" : "");
     this.getAuthToken = config.getAuthToken || (async () => this.currentAuthToken);
+    this._useDoubles = explicitDoubles === true;
     this.getWorkspaceId =
-      config.getWorkspaceId || (() => this.currentWorkspaceId || DEFAULT_WORKSPACE_ID);
-
-    // Fail closed: Doubles are only active when explicitly enabled (config.useDoubles=true or NEXT_PUBLIC_USE_DOUBLES=true).
-    // An unset API URL without explicit doubles enabled throws UNCONFIGURED_BACKEND on request.
-    this.useDoubles = explicitDoubles === true;
+      config.getWorkspaceId ||
+      (() => this.currentWorkspaceId || (this._useDoubles ? DEFAULT_WORKSPACE_ID : null));
   }
 
   public setWorkspaceId(workspaceId: string | null): void {
@@ -134,10 +140,6 @@ export class StoreOpsClient {
 
   public setAuthToken(token: string | null): void {
     this.currentAuthToken = token;
-  }
-
-  public setUseDoubles(useDoubles: boolean): void {
-    (this as { useDoubles: boolean }).useDoubles = useDoubles;
   }
 
   public resetDoubles(): void {
