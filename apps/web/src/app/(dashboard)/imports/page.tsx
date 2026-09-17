@@ -318,13 +318,8 @@ export default function ImportsPage() {
                 <div className="max-h-48 overflow-y-auto space-y-2 border border-red-200 rounded p-2 bg-red-50">
                   {inspectingImport.errors.map((err, idx) => (
                     <div key={idx} className="text-xs text-red-900 border-b border-red-100 pb-1">
-                      <span className="font-bold">Row {err.row_number}: </span>
+                      <span className="font-bold">Row {err.row} ({err.field}): </span>
                       <span>[{err.code}] {err.message}</span>
-                      {err.raw_line && (
-                        <code className="block mt-1 font-mono text-[10px] text-gray-600 bg-white p-1 rounded">
-                          {err.raw_line}
-                        </code>
-                      )}
                     </div>
                   ))}
                 </div>

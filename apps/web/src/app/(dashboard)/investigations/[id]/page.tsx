@@ -10,7 +10,6 @@ import { Button } from "../../../../components/ui/button";
 import { Badge } from "../../../../components/ui/badge";
 import { Modal } from "../../../../components/ui/modal";
 import { Select } from "../../../../components/ui/select";
-import { Input } from "../../../../components/ui/input";
 
 export default function InvestigationDetailPage() {
   const params = useParams();
@@ -21,11 +20,12 @@ export default function InvestigationDetailPage() {
   const [verifications, setVerifications] = useState<Verification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [verificationsError, setVerificationsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Accept / Dismiss plan modal states
   const [isDismissOpen, setIsDismissOpen] = useState(false);
-  const [dismissReason, setDismissReason] = useState<Schemas["DismissReason"]>("SUPERSEDED");
+  const [dismissReason, setDismissReason] = useState<string>("SUPERSEDED");
   const [dismissNotes, setDismissNotes] = useState("");
   const [isSubmittingPlan, setIsSubmittingPlan] = useState(false);
 
@@ -44,12 +44,18 @@ export default function InvestigationDetailPage() {
   const loadData = async () => {
     setLoading(true);
     setError(null);
+    setVerificationsError(null);
     try {
       const invData = await apiClient.getInvestigation(investigationId);
       setInvestigation(invData);
 
-      const verifsRes = await apiClient.listVerifications(investigationId).catch(() => ({ items: [] }));
-      setVerifications(verifsRes.items);
+      try {
+        const verifsRes = await apiClient.listVerifications(investigationId);
+        setVerifications(verifsRes.items);
+      } catch (verifErr: unknown) {
+        console.error("Failed to load verifications:", verifErr);
+        setVerificationsError(verifErr instanceof Error ? verifErr.message : "Failed to load verifications");
+      }
     } catch (err: unknown) {
       console.error("Failed to load investigation:", err);
       setError(err instanceof Error ? err.message : "Failed to load investigation");
@@ -125,10 +131,12 @@ export default function InvestigationDetailPage() {
     setIsSubmittingPlan(true);
     setActionError(null);
     try {
+      const reasonText = dismissNotes.trim()
+        ? `${dismissReason}: ${dismissNotes.trim()}`
+        : dismissReason;
       const updated = await apiClient.dismissInvestigation(investigation.id, {
         expected_version: investigation.version,
-        reason: dismissReason,
-        notes: dismissNotes.trim() || undefined,
+        reason: reasonText,
       });
       setInvestigation(updated);
       setIsDismissOpen(false);
@@ -178,10 +186,15 @@ export default function InvestigationDetailPage() {
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const sha256 = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
+      let mimeType: "image/jpeg" | "image/png" | "application/pdf" | "text/csv" = "image/jpeg";
+      if (file.type === "image/png") mimeType = "image/png";
+      else if (file.type === "application/pdf") mimeType = "application/pdf";
+      else if (file.type === "text/csv") mimeType = "text/csv";
+
       const initResp = await apiClient.initMedia({
         kind: "VISIT_AFTER",
         filename: file.name,
-        mime_type: file.type || "image/jpeg",
+        mime_type: mimeType,
         byte_size: file.size,
         sha256,
         store_id: investigation.store_id,
@@ -193,11 +206,14 @@ export default function InvestigationDetailPage() {
       });
 
       if (initResp.upload_url && !apiClient.useDoubles) {
-        await fetch(initResp.upload_url, {
+        const uploadRes = await fetch(initResp.upload_url, {
           method: "PUT",
-          headers: { "Content-Type": file.type || "image/jpeg" },
+          headers: { "Content-Type": mimeType },
           body: file,
         });
+        if (!uploadRes.ok) {
+          throw new Error(`Media upload failed with status ${uploadRes.status}: ${uploadRes.statusText}`);
+        }
       }
 
       const completed = await apiClient.completeMedia(initResp.media.id, {
@@ -275,7 +291,7 @@ export default function InvestigationDetailPage() {
       : investigation.state === "DISMISSED"
       ? "neutral"
       : investigation.state === "ACCEPTED"
-      ? "primary"
+      ? "info"
       : "warning";
 
   return (
@@ -484,6 +500,17 @@ export default function InvestigationDetailPage() {
       </div>
 
       {/* Verification History & Reports */}
+      {verificationsError && (
+        <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-sm text-red-700 flex justify-between items-center">
+          <div>
+            <span className="font-semibold">Failed to load verifications:</span> {verificationsError}
+          </div>
+          <Button variant="outline" size="sm" onClick={() => loadData()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {verifications.length > 0 && (
         <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
           <h2 className="text-lg font-semibold text-gray-900">Verification History</h2>
@@ -533,7 +560,7 @@ export default function InvestigationDetailPage() {
             </label>
             <Select
               value={dismissReason}
-              onChange={(e) => setDismissReason(e.target.value as Schemas["DismissReason"])}
+              onChange={(e) => setDismissReason(e.target.value)}
               options={[
                 { value: "SUPERSEDED", label: "Superseded by newer visit/policy" },
                 { value: "INVALID_POLICY", label: "Invalid promotion or rule policy" },

@@ -7,6 +7,9 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+from starlette.routing import Route
 from storeops_contracts.models import Currency, Workspace
 
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
@@ -27,15 +30,19 @@ from apps.api.modules.imports.dependencies import (
 )
 from apps.api.modules.policies.dependencies import (
     get_policy_repository,
-    set_model_gateway as set_policy_model_gateway,
     set_policy_repository,
+)
+from apps.api.modules.policies.dependencies import (
+    set_model_gateway as set_policy_model_gateway,
 )
 from apps.api.modules.policies.repository import InMemoryPolicyRepository
 from apps.api.modules.verification.dependencies import (
     get_verification_repository,
     set_clock,
-    set_model_gateway as set_verification_model_gateway,
     set_verification_repository,
+)
+from apps.api.modules.verification.dependencies import (
+    set_model_gateway as set_verification_model_gateway,
 )
 from apps.api.modules.verification.repository import InMemoryVerificationRepository
 from apps.api.modules.visits.dependencies import (
@@ -45,26 +52,6 @@ from apps.api.modules.visits.dependencies import (
 )
 from apps.api.modules.visits.repository import InMemoryVisitRepository
 from apps.api.ports.clock import Clock
-from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response as StarletteResponse
-
-if not any(
-    getattr(route, "path", None) == "/media/upload/{media_id}"
-    for route in app.routes
-):
-    @app.put("/media/upload/{media_id}")
-    async def _test_upload_media_bytes(
-        request: StarletteRequest,
-    ) -> StarletteResponse:
-        from apps.api.modules.catalog.dependencies import get_blob_repository
-
-        media_id = request.path_params["media_id"]
-        raw = await request.body()
-        blob_repo = get_blob_repository()
-        path = blob_repo._file_path(media_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(raw)
-        return StarletteResponse(status_code=200)
 
 
 class FrozenClock(Clock):
@@ -130,6 +117,8 @@ def memory_analytics_repo() -> DuckDBAnalyticsRepository:
 
 import re
 from typing import Any
+
+from apps.api.ai.gateway import ModelSchemaError
 from apps.api.ai.schemas import (
     Alternative,
     AnalysisProposal,
@@ -139,7 +128,6 @@ from apps.api.ai.schemas import (
     ProposedClaim,
     VerificationProposal,
 )
-from apps.api.ai.gateway import ModelSchemaError
 
 
 class ConfigurableE2EGateway(DeterministicModelGateway):
@@ -372,9 +360,30 @@ async def e2e_client(
     set_verification_model_gateway(deterministic_gateway)
     set_policy_model_gateway(deterministic_gateway)
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+    async def _test_upload_media_bytes(
+        request: StarletteRequest,
+    ) -> StarletteResponse:
+        from uuid import UUID
+
+        media_id = UUID(request.path_params["media_id"])
+        raw = await request.body()
+        await memory_blob_repo.finalize_upload(media_id, raw_bytes=raw)
+        return StarletteResponse(status_code=200)
+
+    upload_route = Route(
+        "/media/upload/{media_id}",
+        _test_upload_media_bytes,
+        methods=["PUT"],
+    )
+    app.routes.insert(0, upload_route)
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as test_client:
+            yield test_client
+    finally:
+        if upload_route in app.routes:
+            app.routes.remove(upload_route)
+        app.dependency_overrides.clear()

@@ -13,37 +13,33 @@
 
 import type {
   Store,
-  StoreCreate,
-  StoreUpdate,
   Product,
-  ProductCreate,
-  ProductUpdate,
   Location,
-  LocationCreate,
   Import,
-  ImportCreate,
   Promotion,
-  PromotionCreate,
   PolicyVersion,
-  ApprovePolicy,
   Workspace,
   Membership,
-  Rule,
-  ApiError,
   Visit,
   Investigation,
-  Action,
   Verification,
   Report,
-  Evidence,
   Job,
   JobEvent,
   Media,
   Schemas,
 } from "@storeops/contracts";
 
+type StoreCreate = Schemas["StoreCreate"];
+type StoreUpdate = Schemas["StoreUpdate"];
+type ProductCreate = Schemas["ProductCreate"];
+type ProductUpdate = Schemas["ProductUpdate"];
+type LocationCreate = Schemas["LocationCreate"];
+type ImportCreate = Schemas["ImportCreate"];
+type PromotionCreate = Schemas["PromotionCreate"];
+type ApprovePolicy = Schemas["ApprovePolicy"];
+
 import {
-  IS_TEST_DOUBLE,
   DEFAULT_WORKSPACE_ID,
   MOCK_MEMBERSHIPS,
   MOCK_WORKSPACE,
@@ -96,6 +92,8 @@ export class StoreOpsClient {
   private getAuthToken?: () => Promise<string | null>;
   private getWorkspaceId: () => string | null;
   public readonly useDoubles: boolean;
+  private currentWorkspaceId: string | null = null;
+  private currentAuthToken: string | null = null;
 
   // In-memory state for isolated test double operation (AC-38)
   private doubleStores: Store[] = [...MOCK_STORES];
@@ -121,12 +119,21 @@ export class StoreOpsClient {
     this.baseUrl =
       config.baseUrl ||
       (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_URL || "" : "");
-    this.getAuthToken = config.getAuthToken;
-    this.getWorkspaceId = config.getWorkspaceId || (() => DEFAULT_WORKSPACE_ID);
+    this.getAuthToken = config.getAuthToken || (async () => this.currentAuthToken);
+    this.getWorkspaceId =
+      config.getWorkspaceId || (() => this.currentWorkspaceId || DEFAULT_WORKSPACE_ID);
 
     // Fail closed: Doubles are only active when explicitly enabled (config.useDoubles=true or NEXT_PUBLIC_USE_DOUBLES=true).
     // An unset API URL without explicit doubles enabled throws UNCONFIGURED_BACKEND on request.
     this.useDoubles = explicitDoubles === true;
+  }
+
+  public setWorkspaceId(workspaceId: string | null): void {
+    this.currentWorkspaceId = workspaceId;
+  }
+
+  public setAuthToken(token: string | null): void {
+    this.currentAuthToken = token;
   }
 
   private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -172,7 +179,7 @@ export class StoreOpsClient {
     });
 
     if (!response.ok) {
-      let errBody: ApiError = {
+      let errBody: { code?: string; message?: string; details?: unknown } = {
         code: "HTTP_ERROR",
         message: response.statusText,
         details: null,
@@ -184,7 +191,7 @@ export class StoreOpsClient {
       }
 
       if (response.status === 409 || errBody.code === "VERSION_CONFLICT") {
-        throw new VersionConflictError(errBody.message, errBody.details as Record<string, unknown> | null);
+        throw new VersionConflictError(errBody.message || "Conflict", errBody.details as Record<string, unknown> | null);
       }
 
       throw new ApiRequestError(
@@ -583,21 +590,27 @@ export class StoreOpsClient {
         filename: data.filename,
         mime_type: data.mime_type,
         byte_size: data.byte_size,
-        sha256: data.sha256,
-        status: "PENDING",
+        original_sha256: data.sha256,
+        normalized_sha256: null,
+        status: "PENDING_UPLOAD",
         store_id: data.store_id || null,
         visit_id: data.visit_id || null,
         product_id: data.product_id || null,
         zone_id: data.zone_id || null,
         zone_kind: data.zone_kind || null,
         captured_at: data.captured_at || new Date().toISOString(),
-        exif: null,
-        storage_key: `media/${mediaId}/${data.filename}`,
+        width: 1024,
+        height: 768,
+        rejection: null,
+        download_url: `http://localhost:8000/media/${mediaId}`,
+        download_url_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
       };
       this.doubleMedia.unshift(media);
       return {
         media,
         upload_url: `http://localhost:8000/media/upload/${mediaId}`,
+        method: "PUT",
+        headers: { "Content-Type": data.mime_type },
         expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
       };
     }
@@ -626,7 +639,8 @@ export class StoreOpsClient {
         filename: "uploaded.jpg",
         mime_type: "image/jpeg",
         byte_size: 1024,
-        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        original_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        normalized_sha256: null,
         status: "READY",
         store_id: null,
         visit_id: null,
@@ -634,8 +648,11 @@ export class StoreOpsClient {
         zone_id: null,
         zone_kind: null,
         captured_at: new Date().toISOString(),
-        exif: null,
-        storage_key: `media/${mediaId}/uploaded.jpg`,
+        width: 1024,
+        height: 768,
+        rejection: null,
+        download_url: `http://localhost:8000/media/${mediaId}`,
+        download_url_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
       };
       this.doubleMedia.unshift(media);
       return media;
@@ -660,7 +677,8 @@ export class StoreOpsClient {
         filename: "photo.jpg",
         mime_type: "image/jpeg",
         byte_size: 1024,
-        sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        original_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        normalized_sha256: null,
         status: "READY",
         store_id: null,
         visit_id: null,
@@ -668,8 +686,11 @@ export class StoreOpsClient {
         zone_id: null,
         zone_kind: null,
         captured_at: new Date().toISOString(),
-        exif: null,
-        storage_key: `media/${mediaId}/photo.jpg`,
+        width: 1024,
+        height: 768,
+        rejection: null,
+        download_url: `http://localhost:8000/media/${mediaId}`,
+        download_url_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
       };
     }
     return this.fetch<Media>(`/media/${mediaId}`);

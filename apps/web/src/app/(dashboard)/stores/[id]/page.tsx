@@ -1,20 +1,19 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "../../../../lib/api-client";
 import {
-  formatSales,
   formatStock,
   formatOpportunityProxy,
   formatFreshness,
 } from "../../../../lib/formatters";
 import type { Store, Visit, Schemas } from "@storeops/contracts";
 import { Button } from "../../../../components/ui/button";
-import { Badge } from "../../../../components/ui/badge";
+import { Badge, type BadgeVariant } from "../../../../components/ui/badge";
 import { Modal } from "../../../../components/ui/modal";
-import { Table, Column } from "../../../../components/ui/table";
+import { Table, type Column } from "../../../../components/ui/table";
 
 type StoreHealth = Schemas["StoreHealth"];
 
@@ -28,6 +27,8 @@ export default function StoreDetailPage() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [visitsError, setVisitsError] = useState<string | null>(null);
 
   // Begin Visit modal
   const [isBeginVisitOpen, setIsBeginVisitOpen] = useState(false);
@@ -35,31 +36,50 @@ export default function StoreDetailPage() {
   const [isCreatingVisit, setIsCreatingVisit] = useState(false);
   const [visitError, setVisitError] = useState<string | null>(null);
 
-  const loadStoreData = async () => {
+  const loadHealth = useCallback(async () => {
+    try {
+      const healthData = await apiClient.getStoreHealth(storeId);
+      setHealth(healthData);
+      setHealthError(null);
+    } catch (err: unknown) {
+      console.error("Failed to load store health:", err);
+      setHealthError(err instanceof Error ? err.message : "Failed to load store health metrics");
+      setHealth(null);
+    }
+  }, [storeId]);
+
+  const loadVisits = useCallback(async () => {
+    try {
+      const visitsData = await apiClient.listVisits({ store_id: storeId });
+      setVisits(visitsData.items);
+      setVisitsError(null);
+    } catch (err: unknown) {
+      console.error("Failed to load visits:", err);
+      setVisitsError(err instanceof Error ? err.message : "Failed to load visits");
+      setVisits([]);
+    }
+  }, [storeId]);
+
+  const loadStoreData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [storeData, healthData, visitsData] = await Promise.all([
-        apiClient.getStore(storeId),
-        apiClient.getStoreHealth(storeId).catch(() => null),
-        apiClient.listVisits({ store_id: storeId }).catch(() => ({ items: [] })),
-      ]);
+      const storeData = await apiClient.getStore(storeId);
       setStore(storeData);
-      setHealth(healthData);
-      setVisits(visitsData.items);
+      await Promise.all([loadHealth(), loadVisits()]);
     } catch (err: unknown) {
-      console.error("Failed to load store:", err);
+      console.error("Failed to load store details:", err);
       setError(err instanceof Error ? err.message : "Failed to load store details");
     } finally {
       setLoading(false);
     }
-  };
+  }, [storeId, loadHealth, loadVisits]);
 
   useEffect(() => {
     if (storeId) {
       loadStoreData();
     }
-  }, [storeId]);
+  }, [storeId, loadStoreData]);
 
   const handleBeginVisit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +88,7 @@ export default function StoreDetailPage() {
     try {
       const newVisit = await apiClient.createVisit({
         store_id: storeId,
-        notes: visitNotes.trim() || undefined,
+        notes: visitNotes.trim() || "Routine store audit visit",
       });
       setIsBeginVisitOpen(false);
       router.push(`/visits/${newVisit.id}`);
@@ -80,6 +100,55 @@ export default function StoreDetailPage() {
     }
   };
 
+  const visitColumns: Column<Visit>[] = [
+    {
+      key: "created_at",
+      header: "Date / Created",
+      render: (v) => (
+        <span className="text-sm font-medium text-gray-900">
+          {formatFreshness(v.created_at)}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (v) => (
+        <Badge
+          variant={
+            v.status === "OPEN"
+              ? "warning"
+              : v.status === "CLOSED"
+              ? "success"
+              : "neutral"
+          }
+        >
+          {v.status}
+        </Badge>
+      ),
+    },
+    {
+      key: "notes",
+      header: "Notes",
+      render: (v) => (
+        <span className="text-sm text-gray-600 truncate max-w-xs block">
+          {v.notes || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (v) => (
+        <Link href={`/visits/${v.id}`}>
+          <Button variant="outline" size="sm">
+            View Visit
+          </Button>
+        </Link>
+      ),
+    },
+  ];
+
   if (loading) {
     return (
       <div className="py-12 text-center text-gray-500">
@@ -90,40 +159,45 @@ export default function StoreDetailPage() {
 
   if (error || !store) {
     return (
-      <div className="py-12 text-center">
-        <p className="text-red-600 font-medium mb-4">{error || "Store not found"}</p>
-        <Link href="/stores">
-          <Button variant="outline">Back to Stores</Button>
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+        <h3 className="text-lg font-medium text-red-800">Store Not Found</h3>
+        <p className="mt-2 text-sm text-red-600">{error || "Could not retrieve store information."}</p>
+        <Link href="/catalog" className="mt-4 inline-block">
+          <Button variant="outline">Back to Catalog</Button>
         </Link>
       </div>
     );
   }
 
-  const freshnessVariant =
+  const freshnessVariant: BadgeVariant =
     health?.freshness === "CURRENT"
       ? "success"
       : health?.freshness === "STALE"
       ? "warning"
       : "neutral";
 
+  const opportunityAmountNum = health?.metrics?.opportunity_proxy
+    ? parseFloat(health.metrics.opportunity_proxy)
+    : null;
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-200 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-200 pb-5">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">{store.name}</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">{store.name}</h1>
             <Badge variant={store.active ? "success" : "neutral"}>
-              {store.active ? "Active" : "Archived"}
+              {store.active ? "Active" : "Inactive"}
             </Badge>
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            <span className="font-mono">{store.code}</span> • {store.retailer} • {store.format} • {store.region} ({store.timezone})
+            Store Code: <span className="font-mono font-medium">{store.code}</span> • {store.retailer} • {store.region} • Format: {store.format}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Link href="/stores">
-            <Button variant="outline">Back to Stores</Button>
+        <div className="flex items-center gap-3">
+          <Link href="/catalog">
+            <Button variant="outline">Catalog</Button>
           </Link>
           <Button onClick={() => setIsBeginVisitOpen(true)}>
             Begin Visit
@@ -131,62 +205,71 @@ export default function StoreDetailPage() {
         </div>
       </div>
 
-      {/* Health & Metrics Section */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Freshness */}
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Data Freshness
+      {/* Health Metrics Header Cards */}
+      {healthError ? (
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex justify-between items-center">
+          <div>
+            <span className="font-semibold">Failed to load health metrics:</span> {healthError}
           </div>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge variant={freshnessVariant}>
-              {health?.freshness || "MISSING"}
-            </Badge>
-          </div>
-          <div className="text-xs text-gray-400 mt-2">
-            Freshness status from sales and stock sync
-          </div>
+          <Button variant="outline" size="sm" onClick={loadHealth}>Retry</Button>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Freshness */}
+          <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Data Freshness
+            </div>
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant={freshnessVariant}>
+                {health?.freshness || "MISSING"}
+              </Badge>
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              Freshness status from sales and stock sync
+            </div>
+          </div>
 
-        {/* Opportunity Proxy */}
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Opportunity Amount
+          {/* Opportunity Proxy */}
+          <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Opportunity Amount
+            </div>
+            <div className="text-lg font-bold text-gray-900 mt-2">
+              {formatOpportunityProxy(opportunityAmountNum, store.currency)}
+            </div>
+            <div className="text-xs text-gray-400 mt-1">
+              Peer gap estimated revenue impact
+            </div>
           </div>
-          <div className="text-lg font-bold text-gray-900 mt-2">
-            {formatOpportunityProxy(health?.metrics?.opportunity_amount, store.currency)}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Peer gap estimated revenue impact
-          </div>
-        </div>
 
-        {/* Store Stock */}
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Store Stock
+          {/* Store Stock */}
+          <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Store Stock
+            </div>
+            <div className="text-lg font-bold text-gray-900 mt-2">
+              {formatStock(null)}
+            </div>
+            <div className="text-xs text-gray-400 mt-1">
+              Source: Backroom inventory
+            </div>
           </div>
-          <div className="text-lg font-bold text-gray-900 mt-2">
-            {formatStock(health?.metrics?.store_stock_units)}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Source: Backroom inventory
-          </div>
-        </div>
 
-        {/* Distributor Stock */}
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-            Distributor Stock
-          </div>
-          <div className="text-lg font-bold text-gray-900 mt-2">
-            {formatStock(health?.metrics?.distributor_stock_units)}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Source: Distribution center
+          {/* Distributor Stock */}
+          <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Distributor Stock
+            </div>
+            <div className="text-lg font-bold text-gray-900 mt-2">
+              {formatStock(null)}
+            </div>
+            <div className="text-xs text-gray-400 mt-1">
+              Source: Distribution center
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Readiness & Sales Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -213,7 +296,7 @@ export default function StoreDetailPage() {
             Sales Performance
           </h2>
           <div className="text-2xl font-bold text-gray-900">
-            {formatSales(health?.metrics?.sales_units)}
+            {health?.metrics?.sales_delta ? `${health.metrics.sales_delta}%` : "No sales data"}
           </div>
           <p className="text-xs text-gray-400 mt-2">
             Weekly velocity comparison against peer cohort.
@@ -230,54 +313,21 @@ export default function StoreDetailPage() {
           </span>
         </div>
 
-        <Table
-          data={visits}
-          keyExtractor={(v) => v.id}
-          emptyMessage="No visits recorded for this store yet."
-        >
-          <Column<Visit>
-            header="Date / Created"
-            render={(v) => (
-              <span className="text-sm font-medium text-gray-900">
-                {formatFreshness(v.created_at)}
-              </span>
-            )}
+        {visitsError ? (
+          <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex justify-between items-center">
+            <div>
+              <span className="font-semibold">Failed to load visits:</span> {visitsError}
+            </div>
+            <Button variant="outline" size="sm" onClick={loadVisits}>Retry</Button>
+          </div>
+        ) : (
+          <Table<Visit>
+            columns={visitColumns}
+            data={visits}
+            keyExtractor={(v) => v.id}
+            emptyMessage="No visits recorded for this store yet."
           />
-          <Column<Visit>
-            header="Status"
-            render={(v) => (
-              <Badge
-                variant={
-                  v.status === "OPEN"
-                    ? "warning"
-                    : v.status === "CLOSED"
-                    ? "success"
-                    : "neutral"
-                }
-              >
-                {v.status}
-              </Badge>
-            )}
-          />
-          <Column<Visit>
-            header="Notes"
-            render={(v) => (
-              <span className="text-sm text-gray-600 truncate max-w-xs block">
-                {v.notes || "—"}
-              </span>
-            )}
-          />
-          <Column<Visit>
-            header="Actions"
-            render={(v) => (
-              <Link href={`/visits/${v.id}`}>
-                <Button variant="outline" size="sm">
-                  View Visit
-                </Button>
-              </Link>
-            )}
-          />
-        </Table>
+        )}
       </div>
 
       {/* Begin Visit Modal */}

@@ -6,13 +6,12 @@ Store setup -> Policy approval -> Rep visit -> Shelf photo -> Investigation -> P
 
 import hashlib
 import io
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
 from PIL import Image
-
 
 from tests.e2e.conftest import FrozenClock
 
@@ -119,8 +118,8 @@ async def test_ac40_complete_browser_workflow_happy_path(
         headers={**admin_headers, "Idempotency-Key": str(uuid4())},
         json={
             "name": "Q3 Green Tea Promo",
-            "starts_on": str(date.today()),
-            "ends_on": str(date.today()),
+            "starts_on": str(datetime.now(tz=UTC).date()),
+            "ends_on": str(datetime.now(tz=UTC).date()),
             "store_ids": [store_id],
             "agreement_media_id": agreement_media_id,
         },

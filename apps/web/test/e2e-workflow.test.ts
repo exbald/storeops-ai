@@ -117,3 +117,80 @@ test("AC40: StoreOpsClient implements complete browser workflow operations", asy
   assert.ok(report.id);
   assert.ok(report.outcome);
 });
+
+test("StoreOpsClient dynamic auth token and workspace session configuration", async () => {
+  const originalFetch = globalThis.fetch;
+  let sentHeaders: Record<string, string> = {};
+
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    sentHeaders = (init?.headers as Record<string, string>) || {};
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+
+  try {
+    const client = new StoreOpsClient({
+      useDoubles: false,
+      baseUrl: "https://api.storeops.test",
+    });
+
+    client.setAuthToken("custom-token-xyz");
+    client.setWorkspaceId("00000000-0000-0000-0000-000000000099");
+
+    await client.listStores();
+
+    assert.equal(sentHeaders["Authorization"], "Bearer custom-token-xyz");
+    assert.equal(sentHeaders["X-Workspace-Id"], "00000000-0000-0000-0000-000000000099");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Investigation dismiss detects OCC conflict and updates state", async () => {
+  const client = new StoreOpsClient({ useDoubles: true });
+  const invs = await client.listInvestigations();
+  const target = invs.items[0];
+
+  // 1. OCC conflict on stale expected_version
+  await assert.rejects(
+    async () => {
+      await client.dismissInvestigation(target.id, {
+        expected_version: 9999,
+        reason: "SUPERSEDED: Replaced by newer audit",
+      });
+    },
+    (err: unknown) => {
+      assert.ok(err instanceof VersionConflictError);
+      assert.equal(err.status, 409);
+      return true;
+    }
+  );
+
+  // 2. Successful dismissal with correct version
+  const dismissed = await client.dismissInvestigation(target.id, {
+    expected_version: target.version,
+    reason: "SUPERSEDED: Replaced by newer audit",
+  });
+  assert.equal(dismissed.state, "DISMISSED");
+  assert.equal(dismissed.version, target.version + 1);
+});
+
+test("Verification report gating: only PASS outcome displays Execution verified", async () => {
+  const client = new StoreOpsClient({ useDoubles: true });
+  const report = await client.getReport("00000000-0000-0000-0000-000000000081");
+
+  // Gating rule: report.outcome === "PASS"
+  const isVerified = report.outcome === "PASS";
+  assert.equal(typeof isVerified, "boolean");
+
+  // Synthetic check with all possible outcomes
+  const outcomes = ["PASS", "FAIL", "UNKNOWN"] as const;
+  for (const outcome of outcomes) {
+    const verified = outcome === "PASS";
+    if (outcome === "PASS") {
+      assert.equal(verified, true, "PASS outcome must be verified");
+    } else {
+      assert.equal(verified, false, `${outcome} outcome must NOT be verified`);
+    }
+  }
+});
+

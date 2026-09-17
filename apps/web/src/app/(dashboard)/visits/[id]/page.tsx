@@ -51,6 +51,11 @@ export default function VisitDetailPage() {
   const [jobEvents, setJobEvents] = useState<JobEvent[]>([]);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Separate section errors (no silent fallbacks)
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const [promotionsError, setPromotionsError] = useState<string | null>(null);
+  const [investigationsError, setInvestigationsError] = useState<string | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
@@ -59,17 +64,34 @@ export default function VisitDetailPage() {
       setVisit(visitData);
       setNotes(visitData.notes || "");
 
-      const [storeData, promoRes, invRes] = await Promise.all([
-        apiClient.getStore(visitData.store_id).catch(() => null),
-        apiClient.listPromotions().catch(() => ({ items: [] })),
-        apiClient.listInvestigations({ visit_id: visitId }).catch(() => ({ items: [] })),
-      ]);
+      try {
+        const storeData = await apiClient.getStore(visitData.store_id);
+        setStore(storeData);
+        setStoreError(null);
+      } catch (err: unknown) {
+        console.error("Failed to load store:", err);
+        setStoreError(err instanceof Error ? err.message : "Failed to load store details");
+      }
 
-      setStore(storeData);
-      setPromotions(promoRes.items);
-      setInvestigations(invRes.items);
-      if (promoRes.items.length > 0) {
-        setSelectedPromoId(promoRes.items[0].id);
+      try {
+        const promoRes = await apiClient.listPromotions();
+        setPromotions(promoRes.items);
+        setPromotionsError(null);
+        if (promoRes.items.length > 0) {
+          setSelectedPromoId(promoRes.items[0].id);
+        }
+      } catch (err: unknown) {
+        console.error("Failed to load promotions:", err);
+        setPromotionsError(err instanceof Error ? err.message : "Failed to load promotions");
+      }
+
+      try {
+        const invRes = await apiClient.listInvestigations({ visit_id: visitId });
+        setInvestigations(invRes.items);
+        setInvestigationsError(null);
+      } catch (err: unknown) {
+        console.error("Failed to load investigations:", err);
+        setInvestigationsError(err instanceof Error ? err.message : "Failed to load investigations");
       }
     } catch (err: unknown) {
       console.error("Failed to load visit details:", err);
@@ -130,16 +152,15 @@ export default function VisitDetailPage() {
     try {
       const updated = await apiClient.updateVisit(visit.id, {
         expected_version: visit.version,
-        notes: notes.trim() || undefined,
+        notes: notes.trim() || "Visit notes",
       });
       setVisit(updated);
       setIsEditingNotes(false);
     } catch (err: unknown) {
       if (err instanceof VersionConflictError) {
-        setNotesError("Visit was modified concurrently. Refreshing state...");
-        await loadData();
+        setNotesError("Version conflict: The visit notes were modified concurrently. Please refresh.");
       } else {
-        setNotesError(err instanceof Error ? err.message : "Failed to update notes");
+        setNotesError(err instanceof Error ? err.message : "Failed to update visit notes");
       }
     } finally {
       setIsSavingNotes(false);
@@ -159,11 +180,16 @@ export default function VisitDetailPage() {
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const sha256 = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
+      let mimeType: "image/jpeg" | "image/png" | "application/pdf" | "text/csv" = "image/jpeg";
+      if (file.type === "image/png") mimeType = "image/png";
+      else if (file.type === "application/pdf") mimeType = "application/pdf";
+      else if (file.type === "text/csv") mimeType = "text/csv";
+
       // 1. Init media
       const initResp = await apiClient.initMedia({
         kind: mediaKind,
         filename: file.name,
-        mime_type: file.type || "image/jpeg",
+        mime_type: mimeType,
         byte_size: file.size,
         sha256,
         store_id: visit.store_id,
@@ -176,11 +202,14 @@ export default function VisitDetailPage() {
 
       // 2. Upload file bytes to upload_url
       if (initResp.upload_url && !apiClient.useDoubles) {
-        await fetch(initResp.upload_url, {
+        const uploadRes = await fetch(initResp.upload_url, {
           method: "PUT",
-          headers: { "Content-Type": file.type || "image/jpeg" },
+          headers: { "Content-Type": mimeType },
           body: file,
         });
+        if (!uploadRes.ok) {
+          throw new Error(`Media upload failed with status ${uploadRes.status}: ${uploadRes.statusText}`);
+        }
       }
 
       // 3. Complete media
@@ -399,7 +428,11 @@ export default function VisitDetailPage() {
       {/* Existing Investigations */}
       <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">Investigations</h2>
-        {investigations.length === 0 ? (
+        {investigationsError ? (
+          <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+            Failed to load investigations: {investigationsError}
+          </div>
+        ) : investigations.length === 0 ? (
           <p className="text-sm text-gray-500">
             No investigations triggered for this visit yet. Upload shelf photos above and click "Trigger Investigation".
           </p>
@@ -458,25 +491,29 @@ export default function VisitDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-                  Upload Kind
+                  Photo Type
                 </label>
                 <Select
                   value={mediaKind}
-                  onChange={(e) => setMediaKind(e.target.value as "VISIT_BEFORE" | "VISIT_AFTER")}
+                  onChange={(e) =>
+                    setMediaKind(e.target.value as "VISIT_BEFORE" | "VISIT_AFTER")
+                  }
                   options={[
-                    { value: "VISIT_BEFORE", label: "Before-Action (Initial Audit)" },
-                    { value: "VISIT_AFTER", label: "After-Action (Verification)" },
+                    { value: "VISIT_BEFORE", label: "Before Photo (Pre-Audit / Issue)" },
+                    { value: "VISIT_AFTER", label: "After Photo (Corrective Action)" },
                   ]}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">
-                  Zone Kind
+                  Shelf Zone
                 </label>
                 <Select
                   value={selectedZoneKind}
-                  onChange={(e) => setSelectedZoneKind(e.target.value as "SHELF" | "DISPLAY")}
+                  onChange={(e) =>
+                    setSelectedZoneKind(e.target.value as "SHELF" | "DISPLAY")
+                  }
                   options={[
                     { value: "SHELF", label: "Shelf" },
                     { value: "DISPLAY", label: "Endcap / Display Feature" },
@@ -506,7 +543,7 @@ export default function VisitDetailPage() {
                   disabled={isUploading}
                 />
                 <Button type="button" variant="outline" size="sm" disabled={isUploading}>
-                  {isUploading ? "Uploading..." : "📷 Select & Upload Photo"}
+                  {isUploading ? "Uploading..." : "Select & Upload Photo"}
                 </Button>
               </label>
               <span className="text-xs text-gray-400">

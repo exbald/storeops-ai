@@ -14,7 +14,6 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": false,
-    "baseUrl": ".",
     "paths": {
       "@storeops/contracts": ["../../packages/contracts/dist/index.d.ts"],
       "@storeops/contracts/*": ["../../packages/contracts/dist/*"],

@@ -62,8 +62,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadMe();
   }, []);
 
+  // Sync workspaceId to apiClient singleton
+  useEffect(() => {
+    apiClient.setWorkspaceId(workspaceId);
+  }, [workspaceId]);
+
   const switchWorkspace = useCallback((newId: string) => {
     setWorkspaceId(newId);
+    apiClient.setWorkspaceId(newId);
     const m = memberships.find((mem) => mem.workspace_id === newId);
     if (m) {
       setRole((m.role as UserRole) || "ADMIN");
@@ -74,6 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setWorkspaceId(null);
     setMemberships([]);
+    apiClient.setWorkspaceId(null);
+    apiClient.setAuthToken(null);
   }, []);
 
   const activeMembership = memberships.find((m) => m.workspace_id === workspaceId);

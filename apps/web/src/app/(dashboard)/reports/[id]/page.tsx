@@ -1,39 +1,49 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "../../../../lib/api-client";
 import { formatFreshness } from "../../../../lib/formatters";
-import type { Report, Verification, Investigation, Visit } from "@storeops/contracts";
+import type { Report, Verification, Investigation } from "@storeops/contracts";
 import { Button } from "../../../../components/ui/button";
 import { Badge } from "../../../../components/ui/badge";
 
 export default function ReportDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const reportId = params.id as string;
 
   const [report, setReport] = useState<Report | null>(null);
-  const [verification, setVerification] = useState<Verification | null>(null);
-  const [investigation, setInvestigation] = useState<Investigation | null>(null);
+  const [, setVerification] = useState<Verification | null>(null);
+  const [, setInvestigation] = useState<Investigation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [relatedDataError, setRelatedDataError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
+    setRelatedDataError(null);
     try {
       const reportData = await apiClient.getReport(reportId);
       setReport(reportData);
 
-      const [verifData, invData] = await Promise.all([
-        apiClient.getVerification(reportData.verification_id).catch(() => null),
-        apiClient.getInvestigation(reportData.investigation_id).catch(() => null),
-      ]);
+      try {
+        const [verifData, invData] = await Promise.all([
+          reportData.verification_id
+            ? apiClient.getVerification(reportData.verification_id)
+            : Promise.resolve(null),
+          apiClient.getInvestigation(reportData.investigation_id),
+        ]);
 
-      setVerification(verifData);
-      setInvestigation(invData);
+        setVerification(verifData);
+        setInvestigation(invData);
+      } catch (relErr: unknown) {
+        console.error("Failed to load related verification/investigation:", relErr);
+        setRelatedDataError(
+          relErr instanceof Error ? relErr.message : "Failed to load related audit data"
+        );
+      }
     } catch (err: unknown) {
       console.error("Failed to load report:", err);
       setError(err instanceof Error ? err.message : "Failed to load report");
@@ -66,8 +76,8 @@ export default function ReportDetailPage() {
     return (
       <div className="py-12 text-center">
         <p className="text-red-600 font-medium mb-4">{error || "Report not found"}</p>
-        <Link href="/stores">
-          <Button variant="outline">Back to Stores</Button>
+        <Link href="/catalog">
+          <Button variant="outline">Back to Catalog</Button>
         </Link>
       </div>
     );
@@ -108,10 +118,16 @@ export default function ReportDetailPage() {
             <Button variant="outline">Back to Investigation</Button>
           </Link>
           <Button onClick={handlePrint} variant="outline">
-            🖨 Print / Save PDF
+            Print / Save PDF
           </Button>
         </div>
       </div>
+
+      {relatedDataError && (
+        <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-sm text-amber-800">
+          Notice: {relatedDataError}
+        </div>
+      )}
 
       {/* Report Summary Card */}
       <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm space-y-4 print:shadow-none print:border-gray-300">
@@ -187,7 +203,7 @@ export default function ReportDetailPage() {
       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs text-gray-500 space-y-1 print:border-gray-300">
         <div><strong>Visit:</strong> {report.visit_id}</div>
         <div><strong>Investigation:</strong> {report.investigation_id}</div>
-        <div><strong>Verification:</strong> {report.verification_id}</div>
+        <div><strong>Verification:</strong> {report.verification_id || "None"}</div>
         <div className="pt-2 text-[10px] text-gray-400">
           Grounded StoreOps Audit Report. Bounding boxes and optical verification performed by Gemini Multimodal Vision. Causal sales-recovery assertions excluded per specification.
         </div>

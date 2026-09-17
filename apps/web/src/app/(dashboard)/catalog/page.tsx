@@ -258,7 +258,7 @@ export default function CatalogPage() {
       key: "type",
       header: "Location Type",
       render: (l) => (
-        <Badge variant={l.type === "DISTRIBUTOR" ? "info" : "default"}>
+        <Badge variant={l.type === "DISTRIBUTOR" ? "info" : "neutral"}>
           {l.type}
         </Badge>
       ),
@@ -267,7 +267,7 @@ export default function CatalogPage() {
       key: "status",
       header: "Status",
       render: (l) => (
-        <Badge variant={l.active ? "success" : "default"}>
+        <Badge variant={l.active ? "success" : "neutral"}>
           {l.active ? "Active" : "Inactive"}
         </Badge>
       ),
