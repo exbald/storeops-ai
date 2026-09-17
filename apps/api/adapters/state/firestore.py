@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -59,7 +59,7 @@ class FirestoreStateRepository(StateRepository):
             "uid": uid,
             "role": "ADMIN",
             "email": email,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         # Write in a batch
@@ -89,7 +89,7 @@ class FirestoreStateRepository(StateRepository):
             "uid": uid,
             "role": role,
             "email": email,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         await mem_ref.set(mem_data, merge=True)
         return Membership(
@@ -129,7 +129,7 @@ class FirestoreStateRepository(StateRepository):
         event_ref = job_ref.collection("events").document("1")
         outbox_ref = self.db.collection("outbox").document(str(job.id))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         initial_event = JobEvent(
             sequence=1,
             job_id=job.id,
@@ -158,7 +158,7 @@ class FirestoreStateRepository(StateRepository):
         self, job_id: UUID, worker_id: str, lease_seconds: int = 60
     ) -> int | None:
         lease_ref = self.db.collection("job_leases").document(str(job_id))
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
 
         # Run in transaction
         @firestore.async_transactional
@@ -191,7 +191,7 @@ class FirestoreStateRepository(StateRepository):
         job_ref = self.db.collection("jobs").document(str(job_id))
         lease_ref = self.db.collection("job_leases").document(str(job_id))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         @firestore.async_transactional
         async def _update(transaction: firestore.AsyncTransaction) -> None:
@@ -262,6 +262,6 @@ class FirestoreStateRepository(StateRepository):
                 "body_hash": body_hash,
                 "status_code": status_code,
                 "response": {"status_code": status_code, "body": response_body},
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
         )

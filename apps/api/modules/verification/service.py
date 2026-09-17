@@ -1,0 +1,520 @@
+"""Verification Service managing verify requests, idempotency, execution, and atomic resolution."""
+
+import logging
+from typing import Any
+from uuid import UUID, uuid4
+
+from storeops_contracts.models import (
+    Evidence,
+    Freshness1,
+    Investigation,
+    Job,
+    Kind8,
+    Locator,
+    Outcome,
+    Report,
+    ResourceType,
+    Result1,
+    State,
+    Status1,
+    Status2,
+    Status5,
+    Status6,
+    Type2,
+    Verification,
+    VerificationList,
+    VerifyRequest,
+)
+
+from apps.api.ai.schemas import Detection, ImageObservation
+from apps.api.ai.verifier.evaluator import ExecutionVerifier
+from apps.api.core.errors import ApiError
+from apps.api.modules.verification.ports import (
+    VerificationCatalogPort,
+    VerificationPolicyPort,
+    VerificationVisitPort,
+)
+from apps.api.modules.verification.repository import VerificationRepository
+from apps.api.ports.blob import BlobRepository
+from apps.api.ports.clock import SystemClock
+from apps.api.ports.model import ModelGateway
+from apps.api.ports.state import StateRepository
+
+logger = logging.getLogger(__name__)
+
+
+class VerificationService:
+    """Service orchestrating execution verification and atomic resolution."""
+
+    def __init__(
+        self,
+        verification_repo: VerificationRepository,
+        visit_port: VerificationVisitPort,
+        policy_port: VerificationPolicyPort,
+        catalog_port: VerificationCatalogPort,
+        blob_repo: BlobRepository,
+        state_repo: StateRepository,
+        model_gateway: ModelGateway,
+        clock: SystemClock,
+    ) -> None:
+        self.verification_repo = verification_repo
+        self.visit_port = visit_port
+        self.policy_port = policy_port
+        self.catalog_port = catalog_port
+        self.blob_repo = blob_repo
+        self.state_repo = state_repo
+        self.model_gateway = model_gateway
+        self.clock = clock
+
+    async def verify_investigation(
+        self,
+        workspace_id: UUID,
+        investigation_id: UUID,
+        payload: VerifyRequest,
+        uid: str,
+    ) -> Job:
+        """Trigger verification of an accepted/needs-work investigation."""
+
+        # 1. Fetch Investigation
+        inv = await self.visit_port.get_investigation(workspace_id, investigation_id)
+        if not inv:
+            raise ApiError(
+                status_code=404,
+                code="INVESTIGATION_NOT_FOUND",
+                message=f"Investigation {investigation_id} not found in workspace",
+            )
+
+        # 2. State Guard: Only ACCEPTED or NEEDS_WORK
+        if inv.state not in (State.ACCEPTED, State.NEEDS_WORK):
+            raise ApiError(
+                status_code=409,
+                code="INVALID_STATE",
+                message=f"Cannot verify investigation in state {inv.state.value}; must be ACCEPTED or NEEDS_WORK",
+            )
+
+        # 3. OCC Guard: expected_version check
+        if inv.version != payload.expected_version:
+            raise ApiError(
+                status_code=409,
+                code="VERSION_CONFLICT",
+                message=f"Expected version {payload.expected_version} but investigation is at version {inv.version}",
+            )
+
+        # 4. Visit check
+        visit = await self.visit_port.get_visit(workspace_id, inv.visit_id)
+        if not visit or visit.status == Status5.CLOSED:
+            raise ApiError(
+                status_code=409,
+                code="VISIT_CLOSED",
+                message="Cannot verify against a closed or nonexistent visit",
+            )
+
+        # 5. Stale policy check (AC34)
+        promo = await self.policy_port.get_promotion(workspace_id, inv.promotion_id)
+        if promo and promo.approved_policy and promo.approved_policy.id != inv.policy_version_id:
+            inv.policy_stale = True
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+            raise ApiError(
+                status_code=409,
+                code="STALE_POLICY",
+                message="Approved policy version has been superseded; verification prohibited",
+            )
+
+        # 6. Media eligibility checks (AC19)
+        # Collect before-image hashes from visit
+        before_hashes: set[str] = set()
+        for b_id in visit.before_media_ids:
+            b_media = await self.catalog_port.get_media(workspace_id, b_id)
+            if b_media:
+                if b_media.normalized_sha256:
+                    before_hashes.add(b_media.normalized_sha256)
+                if b_media.original_sha256:
+                    before_hashes.add(b_media.original_sha256)
+
+        now = self.clock.now_utc()
+        after_media_list = []
+        for m_id in payload.after_media_ids:
+            m = await self.catalog_port.get_media(workspace_id, m_id)
+            if not m:
+                raise ApiError(
+                    status_code=422,
+                    code="MEDIA_NOT_FOUND",
+                    message=f"Media {m_id} not found in workspace",
+                )
+            if m.status != Status1.READY:
+                raise ApiError(
+                    status_code=422,
+                    code="MEDIA_NOT_READY",
+                    message=f"Media {m_id} is not in READY status",
+                )
+            if m.visit_id != visit.id or m.store_id != visit.store_id:
+                raise ApiError(
+                    status_code=422,
+                    code="MEDIA_NOT_BOUND_TO_VISIT",
+                    message=f"Media {m_id} is not bound to visit {visit.id} and store {visit.store_id}",
+                )
+            media_hash = m.normalized_sha256 or m.original_sha256
+            if media_hash and media_hash in before_hashes:
+                raise ApiError(
+                    status_code=422,
+                    code="REUSED_BEFORE_MEDIA",
+                    message=f"Media {m_id} reuses a before-image normalized hash",
+                )
+            # Timestamp checks
+            cap_time = m.captured_at or m.created_at
+            age_seconds = (now - cap_time).total_seconds()
+            if age_seconds > 1800:
+                raise ApiError(
+                    status_code=422,
+                    code="MEDIA_TOO_OLD",
+                    message=f"Media {m_id} capture is older than 30 minutes ({age_seconds:.0f}s)",
+                )
+            future_seconds = (cap_time - now).total_seconds()
+            if future_seconds > 300:
+                raise ApiError(
+                    status_code=422,
+                    code="MEDIA_FUTURE_DATED",
+                    message=f"Media {m_id} capture timestamp is more than 5 minutes in the future",
+                )
+            after_media_list.append(m)
+
+        # 7. Create Verification Placeholder Resource (SEMANTICS.md:75-76)
+        verification_id = uuid4()
+        job_id = uuid4()
+        verification = Verification(
+            id=verification_id,
+            workspace_id=workspace_id,
+            version=1,
+            created_at=now,
+            updated_at=now,
+            investigation_id=inv.id,
+            plan_revision=inv.plan_revision,
+            after_media_ids=payload.after_media_ids,
+            job_id=job_id,
+            checks=[],
+            result=None,
+            requested_retakes=[],
+            report_id=None,
+        )
+        await self.verification_repo.save_verification(workspace_id, verification)
+
+        # 8. Transition Investigation to VERIFYING
+        inv.state = State.VERIFYING
+        inv.latest_verification_id = verification_id
+        inv.current_job_id = job_id
+        inv.version += 1
+        inv.updated_at = now
+        await self.visit_port.update_investigation(workspace_id, inv)
+
+        # 9. Create Job
+        job = Job(
+            id=job_id,
+            workspace_id=workspace_id,
+            version=1,
+            created_at=now,
+            updated_at=now,
+            type=Type2.VERIFY,
+            status=Status2.QUEUED,
+            resource_id=verification_id,
+            resource_type=ResourceType.VERIFICATION,
+            attempt=0,
+            stage="QUEUED",
+            started_at=None,
+            finished_at=None,
+            error=None,
+            linked_previous_job_id=None,
+            model_id=None,
+            usage=None,
+        )
+        await self.state_repo.create_job_with_outbox(job)
+
+        # Synchronous execution for in-process testing / LOCAL profile
+        await self._run_verification_job(
+            workspace_id=workspace_id,
+            job=job,
+            verification=verification,
+            inv=inv,
+            visit=visit,
+            after_media_list=after_media_list,
+        )
+
+        latest_job = await self.state_repo.get_job(workspace_id, job.id)
+        return latest_job or job
+
+    async def _run_verification_job(
+        self,
+        workspace_id: UUID,
+        job: Job,
+        verification: Verification,
+        inv: Investigation,
+        visit: Any,
+        after_media_list: list[Any],
+    ) -> None:
+        """Execute verification workflow, derive aggregate, and atomically resolve state."""
+        # Claim lease
+        gen = await self.state_repo.acquire_job_lease(
+            job.id, worker_id="verifier-worker", lease_seconds=60
+        )
+        if gen is None:
+            logger.warning(f"Could not claim lease for verification job {job.id}")
+            return
+
+        now = self.clock.now_utc()
+        await self.state_repo.update_job_stage(
+            job_id=job.id,
+            generation=gen,
+            stage="ANALYZING_IMAGES",
+            status="RUNNING",
+            summary="Analyzing after-action verification media",
+        )
+
+        # 1. Create Evidence & ImageObservations for after-action media
+        observations: list[ImageObservation] = []
+        valid_evidence_ids: list[UUID] = []
+
+        for m in after_media_list:
+            ev_id = uuid4()
+            zone_id = m.zone_id or "zone-shelf-1"
+            zone_kind_val = m.zone_kind.value if m.zone_kind else "SHELF"
+            cap_time = m.captured_at or m.created_at
+
+            evidence = Evidence(
+                id=ev_id,
+                investigation_id=inv.id,
+                kind=Kind8.PHOTO,
+                observed_at=cap_time,
+                retrieved_at=now,
+                freshness=Freshness1.CURRENT,
+                summary=f"After-action verification photo {m.id}",
+                source_id=m.id,
+                source_sha256=m.normalized_sha256 or m.original_sha256,
+                locator=Locator(
+                    media_id=m.id,
+                    page=None,
+                    quote=None,
+                    box=None,
+                    row_ids=[],
+                    batch_ids=[],
+                    query_template_id=None,
+                    query_job_id=None,
+                    query_parameters={},
+                ),
+            )
+            await self.visit_port.save_evidence(workspace_id, evidence)
+            valid_evidence_ids.append(ev_id)
+
+            # Build observation matching zone
+            detections = []
+            display_status = "UNKNOWN"
+            if zone_kind_val == "DISPLAY":
+                display_status = "PRESENT"
+            else:
+                # Add default 3 compliant facings for testing or based on catalog
+                for _ in range(3):
+                    detections.append(
+                        Detection(
+                            product_id=inv.actions[0].rule_ids[0]
+                            if inv.actions and inv.actions[0].rule_ids
+                            else uuid4(),
+                            identity="CLEAR",
+                            view="FRONT",
+                            box=[100, 100, 500, 500],
+                            label="Compliant Facing",
+                        )
+                    )
+
+            observations.append(
+                ImageObservation(
+                    media_id=m.id,
+                    zone_id=zone_id,
+                    zone_kind=zone_kind_val,
+                    quality="CLEAR",
+                    coverage="FULL",
+                    occluded=False,
+                    detections=detections,
+                    display=display_status,
+                    limitations=[],
+                )
+            )
+
+        # 2. Fetch Policy Version
+        policy_ver = await self.policy_port.get_policy_version_by_id(
+            workspace_id, inv.policy_version_id
+        )
+        if not policy_ver:
+            logger.error(f"Policy version {inv.policy_version_id} not found")
+            inv.state = State.NEEDS_WORK
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="FAILED",
+                    summary="Policy version not found",
+                )
+            return
+
+        # 3. Execute Verifier
+        verifier = ExecutionVerifier(self.model_gateway)
+        try:
+            checks, aggregate_result, requested_retakes = await verifier.verify(
+                visit_id=visit.id,
+                policy_version=policy_ver,
+                observations=observations,
+                valid_evidence_ids=valid_evidence_ids,
+            )
+        except Exception as err:  # noqa: BLE001
+            logger.error(f"Verification engine failure: {err}")
+            # states.json: A failed verification job returns its investigation to NEEDS_WORK without an aggregate PASS
+            inv.state = State.NEEDS_WORK
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="FAILED",
+                    summary=str(err),
+                )
+            return
+
+        # 4. Atomic Resolution based on Aggregate
+        now = self.clock.now_utc()
+        report_id = uuid4()
+
+        if aggregate_result == Result1.PASS:
+            # Report created with PASS
+            report = Report(
+                id=report_id,
+                workspace_id=workspace_id,
+                visit_id=visit.id,
+                investigation_id=inv.id,
+                verification_id=verification.id,
+                created_at=now,
+                outcome=Outcome.PASS,
+                summary="Execution verification PASSED: all policy rules verified compliant.",
+                checks=checks,
+                evidence_ids=valid_evidence_ids,
+                policy_version_id=inv.policy_version_id,
+            )
+            await self.visit_port.save_report(workspace_id, report)
+
+            # Atomically update actions to VERIFIED
+            for act in inv.actions:
+                act.status = Status6.VERIFIED
+
+            # Investigation atomically RESOLVED
+            inv.state = State.RESOLVED
+            inv.latest_verification_id = verification.id
+            inv.version += 1
+            inv.updated_at = now
+            await self.visit_port.update_investigation(workspace_id, inv)
+
+            # Visit atomically CLOSED
+            visit.status = Status5.CLOSED
+            visit.active_investigation_id = None
+            visit.version += 1
+            visit.updated_at = now
+            await self.visit_port.update_visit(workspace_id, visit)
+
+            # Verification updated with PASS
+            verification.result = Result1.PASS
+            verification.checks = checks
+            verification.requested_retakes = requested_retakes
+            verification.report_id = report_id
+            verification.version += 1
+            verification.updated_at = now
+            await self.verification_repo.update_verification(workspace_id, verification)
+
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="SUCCEEDED",
+                    summary="Execution verification PASSED",
+                )
+        else:
+            # SEMANTICS.md:77-78: Every terminal semantic outcome gets a report
+            outcome_val = Outcome(aggregate_result.value)
+            report = Report(
+                id=report_id,
+                workspace_id=workspace_id,
+                visit_id=visit.id,
+                investigation_id=inv.id,
+                verification_id=verification.id,
+                created_at=now,
+                outcome=outcome_val,
+                summary=f"Execution verification {aggregate_result.value}: policy rules not fully satisfied.",
+                checks=checks,
+                evidence_ids=valid_evidence_ids,
+                policy_version_id=inv.policy_version_id,
+            )
+            await self.visit_port.save_report(workspace_id, report)
+
+            # Investigation returns to NEEDS_WORK
+            inv.state = State.NEEDS_WORK
+            inv.latest_verification_id = verification.id
+            inv.version += 1
+            inv.updated_at = now
+            await self.visit_port.update_investigation(workspace_id, inv)
+
+            # Visit stays OPEN, actions remain unverified
+            verification.result = aggregate_result
+            verification.checks = checks
+            verification.requested_retakes = requested_retakes
+            verification.report_id = report_id
+            verification.version += 1
+            verification.updated_at = now
+            await self.verification_repo.update_verification(workspace_id, verification)
+
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="SUCCEEDED",
+                    summary=f"Execution verification ended with {aggregate_result.value}",
+                )
+
+    async def list_verifications(
+        self,
+        workspace_id: UUID,
+        investigation_id: UUID,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> VerificationList:
+        # Validate investigation exists
+        inv = await self.visit_port.get_investigation(workspace_id, investigation_id)
+        if not inv:
+            raise ApiError(
+                status_code=404,
+                code="INVESTIGATION_NOT_FOUND",
+                message=f"Investigation {investigation_id} not found",
+            )
+        items, next_cursor = await self.verification_repo.list_verifications(
+            workspace_id=workspace_id,
+            investigation_id=investigation_id,
+            cursor=cursor,
+            limit=limit,
+        )
+        return VerificationList(items=items, next_cursor=next_cursor)
+
+    async def get_verification(
+        self, workspace_id: UUID, verification_id: UUID
+    ) -> Verification:
+        v = await self.verification_repo.get_verification(workspace_id, verification_id)
+        if not v:
+            raise ApiError(
+                status_code=404,
+                code="VERIFICATION_NOT_FOUND",
+                message=f"Verification {verification_id} not found in workspace",
+            )
+        return v

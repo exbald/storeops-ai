@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
+from fastapi import Depends, FastAPI, Header, Path, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from storeops_contracts.models import (
@@ -37,12 +37,13 @@ from apps.api.core.errors import (
     validation_error_handler,
     version_conflict_handler,
 )
-from apps.api.ports.identity import AuthError
-from apps.api.ports.state import StateRepository, VersionConflictError
 from apps.api.modules.catalog.router import router as catalog_router
 from apps.api.modules.imports.router import router as imports_router
 from apps.api.modules.policies.router import router as policies_router
+from apps.api.modules.verification.router import router as verification_router
 from apps.api.modules.visits.router import router as visits_router
+from apps.api.ports.identity import AuthError
+from apps.api.ports.state import StateRepository, VersionConflictError
 
 
 @asynccontextmanager
@@ -268,4 +269,5 @@ app.include_router(catalog_router)
 app.include_router(imports_router)
 app.include_router(policies_router)
 app.include_router(visits_router)
+app.include_router(verification_router)
 

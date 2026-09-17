@@ -1,6 +1,6 @@
-import asyncio
 import logging
-from typing import Callable, Coroutine, Any
+from collections.abc import Callable, Coroutine
+from typing import Any
 from uuid import UUID
 
 from storeops_contracts.models import Job
@@ -80,7 +80,7 @@ class JobRunner:
                     generation=generation,
                     stage="FAILED",
                     status="FAILED",
-                    summary=f"Job failed: {str(e)}",
+                    summary=f"Job failed: {e!s}",
                 )
             except Exception:
                 pass
