@@ -58,10 +58,10 @@ stateDiagram-v2
 
 ### 3.2 Rule Types & Grounding
 When approving a promotional agreement, admins define structured rules:
-- **`MIN_FACINGS`**: Contractual minimum number of horizontal facing units on the shelf (e.g., ≥ 3 facings of Sparkling Water 500ml).
-- **`FACING_SHARE`**: Minimum percentage of the category shelf allocated to the brand.
-- **`EYE_LEVEL`**: Requirement for placement on prime middle shelves (eye/touch level).
-- **Policy Grounding**: Each rule records its provenance (`source.kind`: `EXTRACTED` or `MANUAL`), referencing page numbers, textual quotes, and reviewer notes.
+- **`MIN_FACINGS`**: Contractual minimum number of horizontal facing units on the shelf (e.g., ≥ 3 facings of Sparkling Water 500ml; `product_id` may be null for the brand total or a specific catalog product ID).
+- **`REQUIRED_PRODUCT`**: Mandatory SKU presence on the shelf (`zone_kind: SHELF`, non-null `product_id`, null `min_facings`).
+- **`REQUIRED_DISPLAY`**: Mandatory promotional display presence (`zone_kind: DISPLAY`, null `product_id` and `min_facings`).
+- **Policy Grounding**: Each rule records its provenance (`source.kind`: `DOCUMENT` or `MANUAL`), referencing page numbers, textual quotes, and reviewer notes.
 
 ---
 
