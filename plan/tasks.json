@@ -719,7 +719,7 @@
     {
       "id": "T14",
       "title": "Accept the core MVP from an empty install",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T12"

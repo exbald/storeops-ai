@@ -51,7 +51,7 @@ All 15 planned tasks across Waves 0 through 7 have been integrated into `main` (
 | **5** | **`T10`** | Deterministic regression & failure hardening | [#12](https://github.com/exbald/storeops-ai/pull/12) | `4630a91` | `integrated` | `tests/integration/`, [test-results.md](test-results.md) |
 | **6** | **`T12`** | Cloud parity & live model holdout suite | [#13](https://github.com/exbald/storeops-ai/pull/13) | `b487d03` | `integrated` | `evals/`, `tests/cloud/`, `docs/evaluation/` |
 | **6** | **`T13`** | Optional independent demo seed & replay | [#14](https://github.com/exbald/storeops-ai/pull/14) | `5f920f6` | `integrated` | `fixtures/demo/`, `scripts/seed_demo/`, `tests/demo/` |
-| **7** | **`T14`** | Accept core MVP from empty install | [#15](https://github.com/exbald/storeops-ai/pull/15) | `a2e48f5` | `in_review` | `docs/release.md`, `docs/user-guide.md`, `docs/empty-install.md` |
+| **7** | **`T14`** | Accept core MVP from empty install | [#15](https://github.com/exbald/storeops-ai/pull/15) | `9ecd951` | `integrated` | `docs/release.md`, `docs/user-guide.md`, `docs/empty-install.md` |
 
 ---
 
