@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D01",
+  "title": "Execution Gap: Shelf Stockout with Plentiful Backroom Stock",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "af1ed7cb-e1c4-4f8e-9c04-5e22a5b50fbb",
+    "sku": "SKU-TEA-001",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 48,
+    "distributor_stock": 200,
+    "recent_sales_units_7d": [
+      12,
+      10,
+      11,
+      0,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 3,
+    "notes": "Representative observed completely bare shelf slot for Organic Green Tea. Backroom has 4 unopened cases."
+  }
+}

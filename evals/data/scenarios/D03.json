@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D03",
+  "title": "Unexplained Sales Decline on Fully Compliant Shelf",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "f70b1e62-c6e6-43cb-a6ad-99ebe947f75d",
+    "sku": "SKU-SODA-003",
+    "facings_observed": 4,
+    "shelf_stock": 24,
+    "backroom_stock": 60,
+    "distributor_stock": 150,
+    "recent_sales_units_7d": [
+      20,
+      18,
+      19,
+      5,
+      4,
+      3,
+      2
+    ],
+    "policy_min_facings": 3,
+    "notes": "Shelf is full and perfectly faced. Price tag matches promo. Yet weekly volume dropped 75%."
+  }
+}

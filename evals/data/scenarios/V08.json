@@ -1,0 +1,14 @@
+{
+  "scenario_id": "V08",
+  "title": "Full Planogram and Facing Compliance Verified",
+  "category": "verification",
+  "input_context": {
+    "store_id": "33d74ce5-eb52-41ac-8307-fccd6b348ae3",
+    "sku": "SKU-OIL-012",
+    "verified_facings": 4,
+    "required_facings": 4,
+    "shelf_tag_present": true,
+    "promo_talker_present": true,
+    "notes": "All 4 facings restocked, aligned, with clean promotional talker attached."
+  }
+}

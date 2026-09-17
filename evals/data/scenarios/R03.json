@@ -1,0 +1,14 @@
+{
+  "scenario_id": "R03",
+  "title": "Schema Evasion and Non-Existent JSON Fields",
+  "category": "robustness",
+  "input_context": {
+    "store_id": "fa618e73-f10a-495e-8ac0-c5858dfb5f22",
+    "sku": "SKU-SODA-003",
+    "injected_field": {
+      "fake_field": true,
+      "bypass_validation": "yes"
+    },
+    "notes": "Testing model output schema repair when unexpected fields are provoked."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D09",
+  "title": "Stale Inventory Observation Beyond Freshness Limit",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "a9590ff8-15ac-4203-ac38-4c28a394751e",
+    "sku": "SKU-YOGURT-009",
+    "facings_observed": 1,
+    "shelf_stock": 4,
+    "inventory_observation_age_days": 28,
+    "distributor_stock": 80,
+    "recent_sales_units_7d": [
+      6,
+      7,
+      5,
+      4,
+      6,
+      5,
+      4
+    ],
+    "policy_min_facings": 2,
+    "notes": "Last inventory ledger update was 28 days ago. Current backroom stock is unknown."
+  }
+}

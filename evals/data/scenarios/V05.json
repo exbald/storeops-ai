@@ -1,0 +1,12 @@
+{
+  "scenario_id": "V05",
+  "title": "Stale Reused Before-Image Verification Rejection",
+  "category": "verification",
+  "input_context": {
+    "store_id": "be0a484c-e5b2-4391-ae94-c7581c1efb46",
+    "sku": "SKU-CHIPS-008",
+    "before_image_hash": "hash-duplicate-abc1234",
+    "after_image_hash": "hash-duplicate-abc1234",
+    "notes": "After-image submitted has exact same content hash as initial before-image."
+  }
+}

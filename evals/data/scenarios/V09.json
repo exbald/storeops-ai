@@ -1,0 +1,14 @@
+{
+  "scenario_id": "V09",
+  "title": "Non-Compliant Price on Verified Shelf Tag",
+  "category": "verification",
+  "input_context": {
+    "store_id": "1d83530d-4927-4fa0-bad0-8bb8108a00ea",
+    "sku": "SKU-CRACKER-013",
+    "verified_facings": 3,
+    "required_facings": 3,
+    "detected_price": "3.99",
+    "contract_promo_price": "2.99",
+    "notes": "Facings are filled but shelf tag displays $3.99 instead of promo $2.99."
+  }
+}

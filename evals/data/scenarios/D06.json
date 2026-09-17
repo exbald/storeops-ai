@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D06",
+  "title": "Replenishment Lag from Recent Loading Dock Delivery",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "b58be0f1-aaad-406d-a578-7859fa5b0e70",
+    "sku": "SKU-JUICE-006",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 0,
+    "dock_staging_stock": 40,
+    "distributor_stock": 90,
+    "recent_sales_units_7d": [
+      15,
+      14,
+      16,
+      10,
+      2,
+      0,
+      0
+    ],
+    "policy_min_facings": 3,
+    "notes": "Shipment arrived 2 hours ago and sits on receiving dock pallets awaiting floor transport."
+  }
+}
