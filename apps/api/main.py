@@ -1,5 +1,6 @@
 import hashlib
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -38,6 +39,9 @@ from apps.api.core.errors import (
 )
 from apps.api.ports.identity import AuthError
 from apps.api.ports.state import StateRepository, VersionConflictError
+from apps.api.modules.catalog.router import router as catalog_router
+from apps.api.modules.imports.router import router as imports_router
+from apps.api.modules.policies.router import router as policies_router
 
 
 @asynccontextmanager
@@ -222,9 +226,7 @@ async def retry_job(
 
     # Create new linked job
     new_job_id = uuid4()
-    now = ctx.workspace_id  # placeholder for now
-    from datetime import datetime, timezone
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
 
     retried_job = Job(
         id=new_job_id,
@@ -258,3 +260,10 @@ async def retry_job(
         response_body=retried_job.model_dump(mode="json"),
     )
     return retried_job
+
+
+# Mount module routers
+app.include_router(catalog_router)
+app.include_router(imports_router)
+app.include_router(policies_router)
+
