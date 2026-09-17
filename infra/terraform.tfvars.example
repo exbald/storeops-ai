@@ -1,0 +1,9 @@
+# StoreOps Cloud Deployment Variables Example
+# Copy to terraform.tfvars and populate with your authorized Google Cloud project ID.
+# NEVER commit terraform.tfvars containing real secrets to source control.
+
+project_id         = "your-authorized-gcp-project-id"
+region             = "asia-southeast1"
+app_env            = "dev"
+gemini_model_id    = "gemini-3.8-flash"
+
