@@ -62,7 +62,7 @@ async def drain_outbox(state_repo: StateRepository, runner: JobRunner) -> int:
             )
 
     # LOCAL / InMemory path
-    elif isinstance(getattr(state_repo, "outbox", None), list):
+    elif isinstance(state_repo, InMemoryStateRepository) or isinstance(getattr(state_repo, "outbox", None), list):
         for entry in list(state_repo.outbox):
             if not entry.get("dispatched"):
                 success = await runner.execute_job(
@@ -71,6 +71,11 @@ async def drain_outbox(state_repo: StateRepository, runner: JobRunner) -> int:
                 if success:
                     entry["dispatched"] = True
                     dispatched_count += 1
+    else:
+        logger.warning(
+            "drain_outbox: Unrecognized state_repo type '%s', 0 items drained",
+            type(state_repo).__name__,
+        )
 
     return dispatched_count
 

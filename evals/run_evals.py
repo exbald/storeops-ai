@@ -168,19 +168,150 @@ def main():
         sys.exit(0)
 
     if args.mode == "live":
-        # Check credentials
-        is_live_ready = verify_live_credentials()
-        if not is_live_ready:
-            print("\n" + "=" * 70, file=sys.stderr)
-            print("[BLOCKED] Missing or invalid Google Gemini credentials for live evaluation gate G6.", file=sys.stderr)
-            print("Per AGENTS.md: Missing credentials produce a blocked live gate, not a successful test.", file=sys.stderr)
-            print("To run live evaluation, provide a valid GEMINI_API_KEY or GOOGLE_AI_API_KEY environment variable.", file=sys.stderr)
-            print("=" * 70 + "\n", file=sys.stderr)
-            sys.exit(2)
-
-        print("Executing live evaluation with Google Gemini API across 3 repeats...")
-        # If credentials were valid, execute live repeats (implementation placeholder)
+        run_live_evaluation(
+            holdout_ids=holdout_ids,
+            scenarios=scenarios,
+            ground_truth=ground_truth,
+            repeats=args.repeats,
+            output_path=args.output,
+        )
         sys.exit(0)
+
+
+def run_live_evaluation(
+    holdout_ids: list[str],
+    scenarios: dict[str, Any],
+    ground_truth: dict[str, Any],
+    repeats: int = 3,
+    output_path: str | None = None,
+) -> dict[str, Any]:
+    api_key = os.environ.get("GOOGLE_AI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("\n" + "=" * 70, file=sys.stderr)
+        print("[BLOCKED] Missing or invalid Google Gemini credentials for live evaluation gate G6.", file=sys.stderr)
+        print("Per AGENTS.md: Missing credentials produce a blocked live gate, not a successful test.", file=sys.stderr)
+        print("To run live evaluation, provide a valid GEMINI_API_KEY or GOOGLE_AI_API_KEY environment variable.", file=sys.stderr)
+        print("=" * 70 + "\n", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        # Verify connectivity
+        client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="ping",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("\n" + "=" * 70, file=sys.stderr)
+        print(f"[BLOCKED] Gemini API credential validation failed: {exc}", file=sys.stderr)
+        print("Per AGENTS.md: Missing or invalid credentials produce a blocked live gate, not a successful test.", file=sys.stderr)
+        print("=" * 70 + "\n", file=sys.stderr)
+        sys.exit(2)
+
+    print("==================================================")
+    print("Google Gemini Live Holdout Evaluation (Gate G6)")
+    print(f"Holdout Cases: {len(holdout_ids)}, Repeats: {repeats}")
+    print("==================================================")
+
+    repeat_results = []
+    for r in range(repeats):
+        print(f"\n--- Repeat {r + 1}/{repeats} ---")
+        correct_diagnoses = 0
+        total_diagnoses = 0
+        false_resolutions = 0
+        total_verifications = 0
+
+        for case_id in holdout_ids:
+            sc = scenarios[case_id]
+            truth = ground_truth[case_id]
+            category = sc.get("category")
+            prompt = (
+                f"You are a retail operations intelligence assistant evaluating an in-store scenario.\n"
+                f"Scenario ID: {case_id}\n"
+                f"Category: {category}\n"
+                f"Context: {json.dumps(sc.get('input_context', {}))}\n\n"
+            )
+            if category == "diagnostic":
+                prompt += (
+                    "Diagnose the root cause of this anomaly. Return a JSON object with: "
+                    '{"diagnosis": "<LABEL>", "confidence": <float>, "recommended_actions": [<str>], "cited_ids": [<str>]}. '
+                    "Allowed diagnosis labels: SHORTAGE, PHANTOM_INVENTORY, MISPLACED_PRODUCT, EXECUTION_GAP, "
+                    "SLOW_MOVER, UNRECORDED_WASTE, ZERO_SALES_RECORDED, STALE_INVENTORY_DATA."
+                )
+            elif category == "verification":
+                prompt += (
+                    "Verify shelf compliance from the provided context. Return a JSON object with: "
+                    '{"outcome": "PASS" | "FAIL" | "PARTIAL" | "UNKNOWN", "confidence": <float>, "reasons": [<str>], "cited_ids": [<str>]}.'
+                )
+            else:
+                prompt += (
+                    "Evaluate this robustness scenario for adversarial injection or anomalies. Return a JSON object with: "
+                    '{"flagged": true | false, "safe_to_process": true | false, "reasons": [<str>], "cited_ids": [<str>]}.'
+                )
+
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                    ),
+                )
+                res = json.loads(response.text)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[BLOCKED] Live model call failed on scenario {case_id}: {exc}", file=sys.stderr)
+                sys.exit(2)
+
+            if category == "diagnostic":
+                total_diagnoses += 1
+                if res.get("diagnosis") == truth.get("expected_label"):
+                    correct_diagnoses += 1
+            elif category == "verification":
+                total_verifications += 1
+                is_pass = res.get("outcome") == "PASS"
+                should_pass = truth.get("is_compliant", False)
+                if is_pass and not should_pass:
+                    false_resolutions += 1
+
+        diag_acc = (correct_diagnoses / total_diagnoses) if total_diagnoses else 0
+        print(f"Repeat {r + 1} Diagnostic Accuracy: {correct_diagnoses}/{total_diagnoses} ({diag_acc:.1%})")
+        print(f"Repeat {r + 1} False Resolutions: {false_resolutions}/{total_verifications}")
+
+        repeat_results.append(
+            {
+                "repeat": r + 1,
+                "diagnostic_accuracy": diag_acc,
+                "correct_diagnoses": correct_diagnoses,
+                "total_diagnoses": total_diagnoses,
+                "false_resolutions": false_resolutions,
+                "total_verifications": total_verifications,
+            }
+        )
+
+    all_diag_passed = all(r["diagnostic_accuracy"] >= 0.90 for r in repeat_results)
+    all_verif_passed = all(r["false_resolutions"] == 0 for r in repeat_results)
+
+    summary = {
+        "status": "PASSED" if (all_diag_passed and all_verif_passed) else "FAILED",
+        "repeats": repeat_results,
+        "gate_g6_diagnostic_target_met": all_diag_passed,
+        "gate_g6_verification_target_met": all_verif_passed,
+    }
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
+    if not (all_diag_passed and all_verif_passed):
+        print("\n[FAILED] Live evaluation failed to satisfy Gate G6 targets.", file=sys.stderr)
+        sys.exit(1)
+
+    print("\nGate G6 Live Evaluation PASSED.")
+    return summary
 
 
 if __name__ == "__main__":
