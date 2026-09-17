@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D14",
+  "title": "Sudden POS Spike Outstripping Backroom Replenishment",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "de3f7ee2-2dcb-4013-830a-5f0f75278aed",
+    "sku": "SKU-BEER-014",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 0,
+    "distributor_stock": 300,
+    "recent_sales_units_7d": [
+      20,
+      22,
+      25,
+      95,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 4,
+    "notes": "Sales spiked 4x on game day (95 units sold in 4 hours), wiping out all store safety stock."
+  }
+}

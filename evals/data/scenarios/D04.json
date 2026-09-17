@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D04",
+  "title": "Fully Compliant Healthy Store",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "0fd517a6-dbaa-4f39-9ad7-7325b2da062a",
+    "sku": "SKU-CEREAL-004",
+    "facings_observed": 3,
+    "shelf_stock": 18,
+    "backroom_stock": 36,
+    "distributor_stock": 120,
+    "recent_sales_units_7d": [
+      14,
+      15,
+      12,
+      16,
+      13,
+      15,
+      14
+    ],
+    "policy_min_facings": 3,
+    "notes": "Store audit shows perfect planogram execution, high customer sell-through, and compliant pricing."
+  }
+}

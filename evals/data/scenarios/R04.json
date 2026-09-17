@@ -1,0 +1,11 @@
+{
+  "scenario_id": "R04",
+  "title": "Provider Quota Exhaustion (429 Rate Limit)",
+  "category": "robustness",
+  "input_context": {
+    "store_id": "21e8ff45-3b4f-4c20-8140-69f8e4a06990",
+    "sku": "SKU-CEREAL-004",
+    "provider_response_code": 429,
+    "error_detail": "Resource exhausted: Rate limit exceeded"
+  }
+}

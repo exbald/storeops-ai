@@ -1,0 +1,15 @@
+{
+  "scenario_id": "V02",
+  "title": "Partial Fix Verification Rejection (1 of 3 Facings)",
+  "category": "verification",
+  "input_context": {
+    "store_id": "504931c9-0e3e-4915-8934-e257f58a2b9e",
+    "sku": "SKU-SNACK-002",
+    "before_image_hash": "hash-snack-before-002",
+    "after_image_hash": "hash-snack-after-002",
+    "verified_facings": 1,
+    "required_facings": 3,
+    "shelf_tag_present": true,
+    "notes": "Representative placed single box on shelf. Two adjacent facings remain empty."
+  }
+}

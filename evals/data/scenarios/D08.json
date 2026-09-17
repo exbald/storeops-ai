@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D08",
+  "title": "Partial Shelf Compliance (2 of 4 Required Facings)",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "8af39b7d-3b19-46bf-a6c2-15c8bd88cdc0",
+    "sku": "SKU-CHIPS-008",
+    "facings_observed": 2,
+    "shelf_stock": 10,
+    "backroom_stock": 25,
+    "distributor_stock": 100,
+    "recent_sales_units_7d": [
+      18,
+      17,
+      19,
+      14,
+      12,
+      13,
+      11
+    ],
+    "policy_min_facings": 4,
+    "notes": "Only 2 facings allocated instead of contracted 4 facings. Sales velocity dropped 35%."
+  }
+}

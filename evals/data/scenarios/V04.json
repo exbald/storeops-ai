@@ -1,0 +1,14 @@
+{
+  "scenario_id": "V04",
+  "title": "Occluded Shelf Verification Rejection",
+  "category": "verification",
+  "input_context": {
+    "store_id": "918a8434-0ec4-4d45-babe-5e597a8ad760",
+    "sku": "SKU-WATER-007",
+    "before_image_hash": "hash-water-before-007",
+    "after_image_hash": "hash-water-after-007",
+    "visual_obstruction": "SHOPPING_CART_OCCLUSION",
+    "visibility_score": 0.25,
+    "notes": "Image obstructed by shopping cart directly in front of target shelf."
+  }
+}

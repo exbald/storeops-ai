@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D11",
+  "title": "Markdown Compliance Failure on Promotional Item",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "e4e56734-1817-4644-bbc3-efbcb90758af",
+    "sku": "SKU-BAR-011",
+    "facings_observed": 3,
+    "shelf_stock": 24,
+    "backroom_stock": 40,
+    "shelf_price": "3.49",
+    "policy_promo_price": "2.49",
+    "recent_sales_units_7d": [
+      5,
+      4,
+      3,
+      4,
+      3,
+      5,
+      4
+    ],
+    "policy_min_facings": 3,
+    "notes": "Shelf price tag displays $3.49 standard retail instead of negotiated $2.49 promotional discount."
+  }
+}

@@ -210,7 +210,7 @@ class DuckDBAnalyticsRepository(AnalyticsRepository):
                        i.normalized_units, i.batch_id, b.committed_at,
                        ROW_NUMBER() OVER(
                            PARTITION BY i.workspace_id, i.location_id, i.sku
-                           ORDER BY i.observed_at DESC, b.committed_at DESC
+                           ORDER BY i.observed_at DESC, b.committed_at DESC, i.batch_id DESC
                        ) as rn
                 FROM inventory_facts i
                 JOIN import_batches b ON i.batch_id = b.batch_id
@@ -249,7 +249,7 @@ class DuckDBAnalyticsRepository(AnalyticsRepository):
             if kind:
                 query += " AND kind = ?"
                 params.append(kind)
-            query += " ORDER BY committed_at DESC"
+            query += " ORDER BY committed_at DESC, batch_id DESC"
             cursor = self._con.execute(query, params)
             results = []
             for row in cursor.fetchall():

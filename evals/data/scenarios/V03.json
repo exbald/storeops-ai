@@ -1,0 +1,15 @@
+{
+  "scenario_id": "V03",
+  "title": "Lookalike Competitor Substituted in Verification Image",
+  "category": "verification",
+  "input_context": {
+    "store_id": "5ed7b26e-e0fb-4095-94de-2213838e7adb",
+    "sku": "SKU-COFFEE-005",
+    "before_image_hash": "hash-coffee-before-005",
+    "after_image_hash": "hash-coffee-after-005",
+    "detected_sku": "SKU-LOOKALIKE-BRAND-B",
+    "verified_facings": 2,
+    "required_facings": 2,
+    "notes": "Representative filled slot with competitor brand lookalike cans."
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D05",
+  "title": "Misplaced Competitor Lookalike SKU in Target Slot",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "5c6b1173-5fcd-4f1c-950c-73d330f03bab",
+    "sku": "SKU-COFFEE-005",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 30,
+    "distributor_stock": 80,
+    "recent_sales_units_7d": [
+      10,
+      8,
+      9,
+      2,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 2,
+    "notes": "Lookalike Brand B product placed in slot reserved for Brand A. Brand A stock sitting in backroom."
+  }
+}

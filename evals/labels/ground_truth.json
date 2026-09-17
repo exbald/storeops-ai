@@ -1,0 +1,347 @@
+{
+  "D01": {
+    "expected_label": "SHELF_OUT_OF_STOCK",
+    "acceptable_actions": [
+      "RESTOCK_FROM_BACKROOM",
+      "CORRECT_FACINGS"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-TEA-001"
+    ],
+    "rationale": "High backroom inventory (48 units) while shelf is completely empty indicates an execution gap, not a supply shortage."
+  },
+  "D02": {
+    "expected_label": "SUPPLY_CHAIN_SHORTAGE",
+    "acceptable_actions": [
+      "PLACE_DISTRIBUTOR_BACKORDER",
+      "EXPEDITE_REPLENISHMENT"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-SNACK-002"
+    ],
+    "rationale": "Zero inventory at shelf, backroom, and upstream distributor confirms an upstream supply chain shortage."
+  },
+  "D03": {
+    "expected_label": "DEMAND_DROP",
+    "acceptable_actions": [
+      "INVESTIGATE_COMPETITOR_PRICING",
+      "AUDIT_PROMOTIONAL_SIGNAGE"
+    ],
+    "is_compliant": true,
+    "resolvable_ids": [
+      "SKU-SODA-003"
+    ],
+    "rationale": "Shelf is compliant and well-stocked, pointing to an unexplained demand decline or external competitor factor."
+  },
+  "D04": {
+    "expected_label": "COMPLIANT_NO_ACTION",
+    "acceptable_actions": [
+      "NO_ACTION_REQUIRED"
+    ],
+    "is_compliant": true,
+    "resolvable_ids": [
+      "SKU-CEREAL-004"
+    ],
+    "rationale": "All shelf compliance metrics, stock balances, and velocity targets are met."
+  },
+  "D05": {
+    "expected_label": "MISPLACED_PRODUCT",
+    "acceptable_actions": [
+      "REMOVE_WRONG_SKU",
+      "RESTOCK_TARGET_SKU"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-COFFEE-005"
+    ],
+    "rationale": "Target slot encroached by competitor SKU while target SKU has available backroom stock."
+  },
+  "D06": {
+    "expected_label": "REPLENISHMENT_LAG",
+    "acceptable_actions": [
+      "TRANSPORT_PALLET_TO_FLOOR",
+      "STOCK_SHELF"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-JUICE-006"
+    ],
+    "rationale": "Product is physically in store receiving but has not been moved to retail sales floor."
+  },
+  "D07": {
+    "expected_label": "ZERO_SALES_RECORDED",
+    "acceptable_actions": [
+      "NO_ACTION_REQUIRED"
+    ],
+    "is_compliant": true,
+    "resolvable_ids": [
+      "SKU-WATER-007"
+    ],
+    "rationale": "Explicit zero sales on planned holiday closure is not a gap or missing data error."
+  },
+  "D08": {
+    "expected_label": "PARTIAL_COMPLIANCE",
+    "acceptable_actions": [
+      "EXPAND_FACINGS_TO_FOUR",
+      "RESTOCK_FROM_BACKROOM"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-CHIPS-008"
+    ],
+    "rationale": "Policy mandates 4 facings but only 2 facings are physically implemented."
+  },
+  "D09": {
+    "expected_label": "STALE_INVENTORY_DATA",
+    "acceptable_actions": [
+      "CONDUCT_PHYSICAL_CYCLE_COUNT"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-YOGURT-009"
+    ],
+    "rationale": "Inventory observation violates 7-day freshness SLA; physical count required."
+  },
+  "D10": {
+    "expected_label": "EXECUTION_GAP",
+    "acceptable_actions": [
+      "CO_LOCATE_PROMOTIONAL_ITEMS",
+      "STOCK_SHELF"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-DIP-010",
+      "SKU-CHIPS-008"
+    ],
+    "rationale": "Cross-merchandising agreement breached; dip is absent from promotional display."
+  },
+  "D11": {
+    "expected_label": "PRICE_COMPLIANCE_ERROR",
+    "acceptable_actions": [
+      "UPDATE_SHELF_PRICE_TAG",
+      "AUDIT_POS_PRICE"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-BAR-011"
+    ],
+    "rationale": "Shelf price does not reflect active vendor promotional contract."
+  },
+  "D12": {
+    "expected_label": "PHANTOM_INVENTORY",
+    "acceptable_actions": [
+      "ADJUST_INVENTORY_SHRINKAGE",
+      "TRIGGER_REORDER"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-OIL-012"
+    ],
+    "rationale": "Discrepancy between system ledger and zero physical stock prevents automatic replenishment."
+  },
+  "D13": {
+    "expected_label": "LOCATION_BREACH",
+    "acceptable_actions": [
+      "RELOCATE_TO_ENDCAP",
+      "EXPAND_FACINGS"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-CRACKER-013"
+    ],
+    "rationale": "High-visibility endcap placement contract was violated by moving item to bottom aisle shelf."
+  },
+  "D14": {
+    "expected_label": "UNPLANNED_DEMAND_SURGE",
+    "acceptable_actions": [
+      "INCREASE_SAFETY_STOCK",
+      "EMERGENCY_ORDER"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-BEER-014"
+    ],
+    "rationale": "Stockout caused by an extreme demand event rather than failure to replenish normal velocity."
+  },
+  "D15": {
+    "expected_label": "FACING_ENCROACHMENT",
+    "acceptable_actions": [
+      "REBALANCE_PLANOGRAM",
+      "RESTORE_MINIMUM_FACINGS"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-PASTA-015A",
+      "SKU-PASTA-015B"
+    ],
+    "rationale": "Core contracted SKU was reduced below minimum contracted facings to make room for extension line."
+  },
+  "V01": {
+    "expected_label": "PASS",
+    "acceptable_actions": [
+      "CLOSE_INVESTIGATION"
+    ],
+    "is_compliant": true,
+    "resolvable_ids": [
+      "SKU-TEA-001"
+    ],
+    "rationale": "All 3 required facings are fully restored, neat, and tagged."
+  },
+  "V02": {
+    "expected_label": "FAIL",
+    "acceptable_actions": [
+      "REOPEN_ACTION",
+      "REQUEST_COMPLETE_RESTOCK"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-SNACK-002"
+    ],
+    "rationale": "Only 1 facing verified when policy contract strictly mandates a minimum of 3 facings."
+  },
+  "V03": {
+    "expected_label": "FAIL",
+    "acceptable_actions": [
+      "REJECT_SUBSTITUTION",
+      "RESTOCK_TARGET_SKU"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-COFFEE-005"
+    ],
+    "rationale": "Verification detected competitor SKU rather than contracted brand."
+  },
+  "V04": {
+    "expected_label": "RETAKE_REQUESTED",
+    "acceptable_actions": [
+      "REQUEST_UNOBSTRUCTED_PHOTO"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-WATER-007"
+    ],
+    "rationale": "Severe visual occlusion prevents reliable facing verification."
+  },
+  "V05": {
+    "expected_label": "REUSED_BEFORE_MEDIA",
+    "acceptable_actions": [
+      "REJECT_DUPLICATE_MEDIA",
+      "REQUEST_NEW_PROOF"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-CHIPS-008"
+    ],
+    "rationale": "Reusing before-image as after-image violates verification audit integrity."
+  },
+  "V06": {
+    "expected_label": "FAIL",
+    "acceptable_actions": [
+      "REQUEST_SALES_FLOOR_PHOTO"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-JUICE-006"
+    ],
+    "rationale": "Shelf compliance can only be verified by photographing the retail sales shelf, not backroom."
+  },
+  "V07": {
+    "expected_label": "RETAKE_REQUESTED",
+    "acceptable_actions": [
+      "REQUEST_CLEAR_PHOTO"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-BAR-011"
+    ],
+    "rationale": "Image quality does not meet resolution thresholds for automated verification."
+  },
+  "V08": {
+    "expected_label": "PASS",
+    "acceptable_actions": [
+      "CLOSE_INVESTIGATION"
+    ],
+    "is_compliant": true,
+    "resolvable_ids": [
+      "SKU-OIL-012"
+    ],
+    "rationale": "Flawless planogram adherence matching contract terms."
+  },
+  "V09": {
+    "expected_label": "FAIL",
+    "acceptable_actions": [
+      "CORRECT_PRICE_TAG"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-CRACKER-013"
+    ],
+    "rationale": "Verification fails price audit despite physical facing count being compliant."
+  },
+  "R01": {
+    "expected_label": "INJECTION_ATTEMPT_DEFENDED",
+    "acceptable_actions": [
+      "MAINTAIN_OBJECTIVE_EVALUATION"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-TEA-001"
+    ],
+    "rationale": "Model must ignore prompt injection embedded in untrusted representative notes."
+  },
+  "R02": {
+    "expected_label": "MEDIA_CORRUPTED_ERROR",
+    "acceptable_actions": [
+      "RETRY_UPLOAD"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-SNACK-002"
+    ],
+    "rationale": "System must reject corrupted media cleanly without crashing."
+  },
+  "R03": {
+    "expected_label": "SCHEMA_STRICTLY_ENFORCED",
+    "acceptable_actions": [
+      "REPAIR_SCHEMA_OR_FAIL"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-SODA-003"
+    ],
+    "rationale": "Strict JSON schema validation must reject or repair out-of-spec attributes."
+  },
+  "R04": {
+    "expected_label": "BLOCKED_RATE_LIMIT",
+    "acceptable_actions": [
+      "EXPONENTIAL_BACKOFF_RETRY"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-CEREAL-004"
+    ],
+    "rationale": "429 provider errors must be surfaced as transient failures or blocked gates, never silent success."
+  },
+  "R05": {
+    "expected_label": "STALE_POLICY_CONFLICT",
+    "acceptable_actions": [
+      "RE_EVALUATE_AGAINST_NEW_POLICY"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [
+      "SKU-COFFEE-005"
+    ],
+    "rationale": "Verification against stale policy version must be aborted with 409 STALE_POLICY."
+  },
+  "R06": {
+    "expected_label": "ENTITY_NOT_FOUND",
+    "acceptable_actions": [
+      "ABORT_INVALID_ENTITY"
+    ],
+    "is_compliant": false,
+    "resolvable_ids": [],
+    "rationale": "Queries on uncataloged foreign keys must return 404 or validation failure."
+  }
+}

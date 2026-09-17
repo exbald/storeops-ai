@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D15",
+  "title": "Cannibalization from New Sibling SKU Expansion",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "4deff360-d706-486f-b204-b384b3238ab7",
+    "sku": "SKU-PASTA-015A",
+    "sibling_sku": "SKU-PASTA-015B",
+    "facings_observed": 1,
+    "shelf_stock": 6,
+    "backroom_stock": 20,
+    "sibling_facings": 4,
+    "recent_sales_units_7d": [
+      15,
+      14,
+      12,
+      6,
+      5,
+      4,
+      3
+    ],
+    "policy_min_facings": 3,
+    "notes": "Store expanded new Gluten-Free SKU to 4 facings by squeezing Original SKU down to 1 facing."
+  }
+}
