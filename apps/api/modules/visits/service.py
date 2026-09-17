@@ -523,9 +523,16 @@ class VisitService:
                     start_date="1900-01-01",
                     end_date="2100-01-01",
                 )
+                stock_loc_ids = [inv.store_id]
+                if store:
+                    if getattr(store, "backroom_location_id", None):
+                        stock_loc_ids.append(store.backroom_location_id)
+                    if getattr(store, "distributor_location_id", None):
+                        stock_loc_ids.append(store.distributor_location_id)
+
                 stock_facts = await self.analytics_repo.get_latest_inventory(
                     workspace_id=workspace_id,
-                    location_ids=[inv.store_id],
+                    location_ids=stock_loc_ids,
                     as_of_time=now.isoformat(),
                 )
             except (KeyError, ValueError, RuntimeError, OSError) as e:
@@ -635,6 +642,23 @@ class VisitService:
                 stock_ev_ids.append(stock_ev_id)
 
         cat_pids = policy_ver.catalog_product_ids
+        if not cat_pids:
+            inv.state = State.INCOMPLETE
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_repo.update_investigation(
+                workspace_id,
+                inv,
+            )
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="SUCCEEDED",
+                    summary="Investigation completed with state INCOMPLETE: promotion policy has no catalog products",
+                )
+            return
 
         # Derive commercial window dates dynamically from actual facts
         sorted_dates = sorted(
@@ -672,12 +696,14 @@ class VisitService:
             current_revenue = (
                 f"{sum(Decimal(str(f['revenue'])) for f in current_facts):.2f}"
             )
-            sales_currency = (
-                Currency(sales_facts[0]["currency"])
-                if sales_facts
-                and sales_facts[0].get("currency") in Currency.__members__
-                else Currency.SGD
-            )
+            try:
+                sales_currency = (
+                    Currency(sales_facts[0]["currency"])
+                    if sales_facts
+                    else Currency.SGD
+                )
+            except (ValueError, KeyError, IndexError):
+                sales_currency = Currency.SGD
         elif len(sorted_dates) == 1:
             d = date.fromisoformat(sorted_dates[0])
             prior_start = d - timedelta(days=7)
@@ -736,24 +762,6 @@ class VisitService:
             sales_context, currency=sales_currency, as_of_date=now.date()
         )
 
-        if not cat_pids:
-            inv.state = State.INCOMPLETE
-            inv.updated_at = self.clock.now_utc()
-            await self.visit_repo.update_investigation(
-                workspace_id,
-                inv,
-                expected_version=inv.version,
-            )
-            if gen is not None:
-                await self.state_repo.update_job_stage(
-                    job_id=job.id,
-                    generation=gen,
-                    stage="COMPLETED",
-                    status="SUCCEEDED",
-                    summary="Investigation completed with state INCOMPLETE: promotion policy has no catalog products",
-                )
-            return
-
         sku_to_pid: dict[str, UUID] = {}
         for pid in cat_pids:
             prod = await self.catalog_repo.get_product(workspace_id, pid)
@@ -761,6 +769,7 @@ class VisitService:
                 sku_to_pid[prod.sku] = prod.id
 
         stock_items: list[StockItem] = []
+        stock_gaps: list[Gap] = []
         store_backroom_id = (
             getattr(store, "backroom_location_id", None) if store else None
         )
@@ -796,9 +805,18 @@ class VisitService:
             )
 
             row_sku = sf.get("sku")
-            product_id = (
-                sku_to_pid.get(row_sku, cat_pids[0]) if row_sku else cat_pids[0]
-            )
+            if row_sku and row_sku in sku_to_pid:
+                product_id = sku_to_pid[row_sku]
+            elif len(cat_pids) == 1:
+                product_id = cat_pids[0]
+            else:
+                stock_gaps.append(
+                    Gap(
+                        root=f"Stock SKU '{row_sku}' cannot be mapped to promotion products"
+                    )
+                )
+                continue
+
             loc_type = (
                 LocationType.BACKROOM if is_backroom else LocationType.DISTRIBUTOR
             )
@@ -925,6 +943,7 @@ class VisitService:
 
         if not proposal:
             inv.state = State.INCOMPLETE
+            inv.version += 1
             inv.updated_at = self.clock.now_utc()
             await self.visit_repo.update_investigation(workspace_id, inv)
             if gen is not None:
@@ -1008,6 +1027,7 @@ class VisitService:
         if action_mapping_error:
             logger.warning(f"Action validation failed: {action_mapping_error}")
             inv.state = State.INCOMPLETE
+            inv.version += 1
             inv.updated_at = self.clock.now_utc()
             await self.visit_repo.update_investigation(workspace_id, inv)
             if gen is not None:
@@ -1028,6 +1048,7 @@ class VisitService:
             sales_complete
             and len(sales_gaps) == 0
             and all_stock_fresh
+            and len(stock_gaps) == 0
             and len(proposal.unresolved_questions) == 0
         )
         diagnosis_support = Support.SUPPORTED if is_supported else Support.LIMITED
