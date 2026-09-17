@@ -95,7 +95,7 @@ Confirm database migration readiness:
 ```bash
 make migrate
 ```
-In `LOCAL` mode, `make migrate` verifies the existence of the `migrations/` directory and confirms readiness. DuckDB tables and analytical views are initialized dynamically on first access, while in-memory state structures require no upfront DDL. In `CLOUD` mode, this target applies versioned migrations to BigQuery and Firestore indexes.
+In `LOCAL` mode, `make migrate` verifies the existence of the `migrations/` directory and confirms readiness. DuckDB tables and analytical views are initialized dynamically on first access, while in-memory state structures require no upfront DDL. In `CLOUD` mode, BigQuery dataset and Firestore indexes are provisioned via Terraform as detailed in `infra/`.
 
 ### Step 2: Bootstrap an Empty Workspace
 Provision an empty workspace with an initial administrative user using `scripts/bootstrap.py`:
