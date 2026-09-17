@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D10",
+  "title": "Multi-SKU Promotion Co-Location Gap",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "4819c1da-df29-4e5d-afd1-c48d66addbb2",
+    "sku": "SKU-DIP-010",
+    "paired_sku": "SKU-CHIPS-008",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 20,
+    "distributor_stock": 60,
+    "recent_sales_units_7d": [
+      10,
+      12,
+      8,
+      1,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 2,
+    "notes": "Promotion requires Salsa Dip to be co-located with Tortilla Chips. Dip shelf slot is missing."
+  }
+}

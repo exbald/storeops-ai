@@ -1,0 +1,12 @@
+{
+  "scenario_id": "V07",
+  "title": "Low Resolution / Blurry Photo Rejection",
+  "category": "verification",
+  "input_context": {
+    "store_id": "38dde6e8-1c73-412f-b6fe-71a3748430c9",
+    "sku": "SKU-BAR-011",
+    "blur_metric": "SEVERE_MOTION_BLUR",
+    "confidence_score": 0.3,
+    "notes": "Photo is extremely blurry; text on shelf tags and barcodes unreadable."
+  }
+}

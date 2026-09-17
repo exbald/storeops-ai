@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D02",
+  "title": "Confirmed Supply Chain Shortage",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "e37651e3-14d9-44e1-be47-3829d49c8993",
+    "sku": "SKU-SNACK-002",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 0,
+    "distributor_stock": 0,
+    "recent_sales_units_7d": [
+      8,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 2,
+    "notes": "Neither shelf nor backroom contains product. Distributor order portal reports national manufacturer backorder."
+  }
+}

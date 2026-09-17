@@ -1,0 +1,10 @@
+{
+  "scenario_id": "R06",
+  "title": "Malformed Foreign Keys and Orphan Identifiers",
+  "category": "robustness",
+  "input_context": {
+    "store_id": "00000000-0000-0000-0000-000000000000",
+    "sku": "NON_EXISTENT_SKU_999",
+    "notes": "Attempting verification with uncataloged store and product identifiers."
+  }
+}

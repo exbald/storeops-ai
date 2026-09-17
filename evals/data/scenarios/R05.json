@@ -1,0 +1,12 @@
+{
+  "scenario_id": "R05",
+  "title": "Concurrent Policy Modification Conflict (409)",
+  "category": "robustness",
+  "input_context": {
+    "store_id": "d06582dd-b6d3-4b27-8894-40ca5ce68104",
+    "sku": "SKU-COFFEE-005",
+    "investigation_policy_version": 1,
+    "current_approved_policy_version": 2,
+    "notes": "Policy was updated and approved between investigation creation and verification time."
+  }
+}

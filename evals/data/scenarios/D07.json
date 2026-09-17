@@ -1,0 +1,24 @@
+{
+  "scenario_id": "D07",
+  "title": "Explicit Zero Sales Recorded on Store Holiday Closure",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "f9980046-6d05-4b63-9a66-a7c2fd6fd323",
+    "sku": "SKU-WATER-007",
+    "facings_observed": 4,
+    "shelf_stock": 32,
+    "backroom_stock": 100,
+    "distributor_stock": 400,
+    "recent_sales_units_7d": [
+      25,
+      28,
+      26,
+      0,
+      27,
+      24,
+      29
+    ],
+    "policy_min_facings": 4,
+    "notes": "Day 4 shows exactly 0 units sold. Store was officially closed for Labor Day holiday."
+  }
+}

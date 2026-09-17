@@ -1,0 +1,11 @@
+{
+  "scenario_id": "R02",
+  "title": "Truncated / Corrupted Media Payload",
+  "category": "robustness",
+  "input_context": {
+    "store_id": "e4c48959-18a0-489c-bf12-c03804164e5c",
+    "sku": "SKU-SNACK-002",
+    "media_payload_status": "CORRUPTED_BYTES",
+    "notes": "Upload interrupted mid-stream resulting in corrupt JPEG header."
+  }
+}

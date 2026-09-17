@@ -1,0 +1,15 @@
+{
+  "scenario_id": "V01",
+  "title": "Compliant After-Image Restoration",
+  "category": "verification",
+  "input_context": {
+    "store_id": "b20f7332-e338-4158-a730-95acff092249",
+    "sku": "SKU-TEA-001",
+    "before_image_hash": "hash-tea-before-001",
+    "after_image_hash": "hash-tea-after-001",
+    "verified_facings": 3,
+    "required_facings": 3,
+    "shelf_tag_present": true,
+    "notes": "Representative restocked shelf with 3 full facings and confirmed valid shelf tag."
+  }
+}

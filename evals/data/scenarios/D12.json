@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D12",
+  "title": "Phantom Inventory: Ledger Desynchronization",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "cfd7c2de-c51e-42b0-93b6-bc98bb22b295",
+    "sku": "SKU-OIL-012",
+    "facings_observed": 0,
+    "shelf_stock": 0,
+    "backroom_stock": 0,
+    "inventory_ledger_reported": 36,
+    "distributor_stock": 50,
+    "recent_sales_units_7d": [
+      4,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "policy_min_facings": 2,
+    "notes": "System inventory claims 36 units on hand, but physical audit found zero units anywhere in store."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "scenario_id": "D13",
+  "title": "Endcap Compliance Breach: Relocated to In-Aisle Bottom Shelf",
+  "category": "diagnostic",
+  "input_context": {
+    "store_id": "b6bfcbcc-e0e2-44d0-888c-db0d3a980f42",
+    "sku": "SKU-CRACKER-013",
+    "facings_observed": 2,
+    "shelf_stock": 14,
+    "backroom_stock": 20,
+    "observed_location": "AISLE_4_BOTTOM",
+    "policy_required_location": "FEATURE_ENDCAP_A",
+    "recent_sales_units_7d": [
+      8,
+      9,
+      7,
+      3,
+      2,
+      2,
+      1
+    ],
+    "policy_min_facings": 3,
+    "notes": "Product moved from premier front endcap to lower shelf in center aisle, violating placement terms."
+  }
+}

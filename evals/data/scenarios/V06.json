@@ -1,0 +1,12 @@
+{
+  "scenario_id": "V06",
+  "title": "Wrong Zone Imaged in Verification Evidence",
+  "category": "verification",
+  "input_context": {
+    "store_id": "332eaca5-ddc0-4344-a96f-08a4d8f74ff5",
+    "sku": "SKU-JUICE-006",
+    "required_zone": "RETAIL_SALES_FLOOR_AISLE_3",
+    "imaged_zone": "BACKROOM_STORAGE_RACK",
+    "notes": "Representative took photo of inventory boxes in storage rather than retail shelf."
+  }
+}
