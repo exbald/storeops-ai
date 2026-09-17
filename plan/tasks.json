@@ -355,7 +355,7 @@
     {
       "id": "T07",
       "title": "Persisted visits, investigations, plans and evidence",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T02",
