@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiClient, VersionConflictError } from "../../../../lib/api-client";
 import { formatFreshness } from "../../../../lib/formatters";
@@ -10,10 +10,10 @@ import { Button } from "../../../../components/ui/button";
 import { Badge } from "../../../../components/ui/badge";
 import { Modal } from "../../../../components/ui/modal";
 import { Select } from "../../../../components/ui/select";
+import { Input } from "../../../../components/ui/input";
 
 export default function InvestigationDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const investigationId = params.id as string;
 
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
@@ -22,6 +22,7 @@ export default function InvestigationDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [verificationsError, setVerificationsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [afterZoneId, setAfterZoneId] = useState("shelf-main");
 
   // Accept / Dismiss plan modal states
   const [isDismissOpen, setIsDismissOpen] = useState(false);
@@ -200,7 +201,7 @@ export default function InvestigationDetailPage() {
         store_id: investigation.store_id,
         visit_id: investigation.visit_id,
         product_id: null,
-        zone_id: "shelf-main",
+        zone_id: afterZoneId.trim() || "shelf-main",
         zone_kind: "SHELF",
         captured_at: new Date().toISOString(),
       });
@@ -339,7 +340,7 @@ export default function InvestigationDetailPage() {
               disabled={!allActionsDone}
               title={!allActionsDone ? "Complete all action items before verifying" : ""}
             >
-              Verify Execution →
+              Verify Execution
             </Button>
           )}
         </div>
@@ -490,7 +491,7 @@ export default function InvestigationDetailPage() {
                     disabled={!canToggle}
                     onClick={() => handleToggleActionStatus(act)}
                   >
-                    {isDone ? "Mark Incomplete" : "✓ Claim Done"}
+                    {isDone ? "Mark Incomplete" : "Claim Done"}
                   </Button>
                 </div>
               </div>
@@ -533,7 +534,7 @@ export default function InvestigationDetailPage() {
                 {v.report_id && (
                   <Link href={`/reports/${v.report_id}`}>
                     <Button variant="outline" size="sm">
-                      Inspect Report →
+                      Inspect Report
                     </Button>
                   </Link>
                 )}
@@ -618,7 +619,15 @@ export default function InvestigationDetailPage() {
           )}
 
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className="w-48">
+                <Input
+                  type="text"
+                  value={afterZoneId}
+                  onChange={(e) => setAfterZoneId(e.target.value)}
+                  placeholder="Zone (e.g. shelf-main)"
+                />
+              </div>
               <label className="cursor-pointer">
                 <input
                   type="file"
@@ -628,7 +637,7 @@ export default function InvestigationDetailPage() {
                   disabled={isUploadingAfter}
                 />
                 <Button type="button" variant="outline" size="sm" disabled={isUploadingAfter}>
-                  {isUploadingAfter ? "Uploading..." : "📷 Upload After-Action Photo"}
+                  {isUploadingAfter ? "Uploading..." : "Upload After-Action Photo"}
                 </Button>
               </label>
               <span className="text-xs text-gray-500">

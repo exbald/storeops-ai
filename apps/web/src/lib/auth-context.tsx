@@ -19,6 +19,7 @@ export type UserRole = "ADMIN" | "REP";
 
 export interface AuthContextType {
   user: { id: string; email: string } | null;
+  token: string | null;
   role: UserRole;
   workspaceId: string | null;
   activeWorkspaceName: string;
@@ -32,6 +33,10 @@ export interface AuthContextType {
   signOut: () => void;
 }
 
+const DEFAULT_AUTH_TOKEN =
+  (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN : "") ||
+  "storeops-dev-session-token";
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -39,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     id: "usr-admin-001",
     email: "admin@storeops.local",
   });
+  const [token, setToken] = useState<string | null>(DEFAULT_AUTH_TOKEN);
   const [memberships, setMemberships] = useState<Membership[]>(MOCK_MEMBERSHIPS);
   const [workspaceId, setWorkspaceId] = useState<string | null>(DEFAULT_WORKSPACE_ID);
   const [role, setRole] = useState<UserRole>("ADMIN");
@@ -62,10 +68,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadMe();
   }, []);
 
-  // Sync workspaceId to apiClient singleton
+  // Sync workspaceId and authToken to apiClient singleton
   useEffect(() => {
     apiClient.setWorkspaceId(workspaceId);
-  }, [workspaceId]);
+    apiClient.setAuthToken(token);
+  }, [workspaceId, token]);
 
   const switchWorkspace = useCallback((newId: string) => {
     setWorkspaceId(newId);
@@ -80,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setWorkspaceId(null);
     setMemberships([]);
+    setToken(null);
     apiClient.setWorkspaceId(null);
     apiClient.setAuthToken(null);
   }, []);
@@ -96,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         role,
         workspaceId,
+        token,
         activeWorkspaceName,
         memberships,
         isAdmin,

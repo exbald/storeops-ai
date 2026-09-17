@@ -318,6 +318,32 @@ export default function VisitDetailPage() {
         </div>
       </div>
 
+      {/* Store Error Banner */}
+      {storeError && (
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex justify-between items-center">
+          <div>
+            <p className="font-semibold text-sm">Failed to load store information</p>
+            <p className="text-xs mt-0.5">{storeError}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadData}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Promotions Error Banner */}
+      {promotionsError && (
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md flex justify-between items-center">
+          <div>
+            <p className="font-semibold text-sm">Failed to load promotions</p>
+            <p className="text-xs mt-0.5">{promotionsError}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadData}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Notes Section with Concurrency Fencing */}
       <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-3">
         <div className="flex justify-between items-center">
@@ -417,7 +443,7 @@ export default function VisitDetailPage() {
             <div className="pt-2">
               <Link href={`/investigations/${activeJob.resource_id}`}>
                 <Button size="sm">
-                  View Resulting Investigation & Plan →
+                  View Resulting Investigation & Plan
                 </Button>
               </Link>
             </div>
@@ -590,6 +616,12 @@ export default function VisitDetailPage() {
           {invError && (
             <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600">
               {invError}
+            </div>
+          )}
+
+          {promotionsError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600">
+              Failed to load promotions: {promotionsError}. You must have an active promotion policy to run an investigation.
             </div>
           )}
 

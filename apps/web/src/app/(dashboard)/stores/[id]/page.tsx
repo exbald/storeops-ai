@@ -281,7 +281,7 @@ export default function StoreDetailPage() {
             <ul className="space-y-2">
               {health.readiness.map((item, idx) => (
                 <li key={idx} className="flex items-center gap-2 text-sm text-gray-700">
-                  <span className="text-green-600 font-bold">✓</span>
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
                   <span>{item}</span>
                 </li>
               ))}

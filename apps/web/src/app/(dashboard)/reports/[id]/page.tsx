@@ -14,8 +14,8 @@ export default function ReportDetailPage() {
   const reportId = params.id as string;
 
   const [report, setReport] = useState<Report | null>(null);
-  const [, setVerification] = useState<Verification | null>(null);
-  const [, setInvestigation] = useState<Investigation | null>(null);
+  const [verification, setVerification] = useState<Verification | null>(null);
+  const [investigation, setInvestigation] = useState<Investigation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [relatedDataError, setRelatedDataError] = useState<string | null>(null);
@@ -104,7 +104,7 @@ export default function ReportDetailPage() {
             {/* The report says “Execution verified” only after PASS */}
             {isVerified && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-200">
-                ✓ Execution verified
+                Execution verified
               </span>
             )}
           </div>
@@ -202,8 +202,18 @@ export default function ReportDetailPage() {
       {/* Audit Context */}
       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs text-gray-500 space-y-1 print:border-gray-300">
         <div><strong>Visit:</strong> {report.visit_id}</div>
-        <div><strong>Investigation:</strong> {report.investigation_id}</div>
-        <div><strong>Verification:</strong> {report.verification_id || "None"}</div>
+        <div>
+          <strong>Investigation:</strong> {report.investigation_id}
+          {investigation?.diagnosis?.hypothesis && (
+            <span className="ml-2 text-gray-700">({investigation.diagnosis.hypothesis})</span>
+          )}
+        </div>
+        <div>
+          <strong>Verification:</strong> {report.verification_id || "None"}
+          {verification?.result && (
+            <span className="ml-2 font-semibold text-gray-700">({verification.result})</span>
+          )}
+        </div>
         <div className="pt-2 text-[10px] text-gray-400">
           Grounded StoreOps Audit Report. Bounding boxes and optical verification performed by Gemini Multimodal Vision. Causal sales-recovery assertions excluded per specification.
         </div>
