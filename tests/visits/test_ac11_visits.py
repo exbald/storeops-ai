@@ -8,6 +8,7 @@ from storeops_contracts.models import (
     Location,
     Media,
     Status1,
+    Status5,
     Store,
     Type1,
     ZoneKind,
@@ -306,3 +307,37 @@ def test_prod_app_exposes_visits_and_investigations_routes():
     assert "/investigations/{investigation_id}" in paths
     assert "/investigations/{investigation_id}/evidence" in paths
     assert "/reports/{report_id}" in paths
+
+
+@pytest.mark.asyncio
+async def test_ac11_closed_visit_patch_returns_409(
+    client,
+    workspace_setup,
+    sample_store,
+    visit_repo,
+):
+    ws_id = workspace_setup["workspace_id"]
+    headers = workspace_setup["rep_headers"]
+
+    res = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Active visit"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    assert res.status_code == 201
+    visit_id = UUID(res.json()["id"])
+
+    # Directly close the visit in repo
+    visit = await visit_repo.get_visit(ws_id, visit_id)
+    visit.status = Status5.CLOSED
+    await visit_repo.update_visit(ws_id, visit)
+
+    # Attempt to patch notes on closed visit
+    res_patch = await client.patch(
+        f"/visits/{visit_id}",
+        json={"expected_version": visit.version, "notes": "Attempt update on closed"},
+        headers=headers,
+    )
+    assert res_patch.status_code == 409
+    assert res_patch.json()["code"] == "VISIT_CLOSED"
+

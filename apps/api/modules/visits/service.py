@@ -556,34 +556,38 @@ class VisitService:
             try:
                 source_id = UUID(str(sales_batches[0]["import_id"]))
             except (ValueError, KeyError):
-                source_id = inv.snapshot_id
+                try:
+                    source_id = UUID(str(sales_batches[0]["batch_id"]))
+                except (ValueError, KeyError):
+                    source_id = None
 
-            sales_ev_id = uuid4()
-            sales_ev = Evidence(
-                id=sales_ev_id,
-                investigation_id=inv.id,
-                kind=Kind8.SALES_ROWS,
-                observed_at=now,
-                retrieved_at=now,
-                freshness=Freshness1.CURRENT,
-                summary="Committed weekly sales rows snapshot",
-                source_id=source_id,
-                source_sha256=sales_batches[0]["source_sha256"],
-                locator=Locator(
-                    media_id=None,
-                    page=None,
-                    quote=None,
-                    box=None,
-                    row_ids=[],
-                    batch_ids=sales_batch_ids,
-                    query_template_id="sales_window_v1",
-                    query_job_id=None,
-                    query_parameters={"store_id": str(inv.store_id)},
-                ),
-            )
-            await self.visit_repo.save_evidence(workspace_id, sales_ev)
-            known_evidence_ids.append(sales_ev_id)
-            sales_ev_ids.append(sales_ev_id)
+            if source_id is not None:
+                sales_ev_id = uuid4()
+                sales_ev = Evidence(
+                    id=sales_ev_id,
+                    investigation_id=inv.id,
+                    kind=Kind8.SALES_ROWS,
+                    observed_at=now,
+                    retrieved_at=now,
+                    freshness=Freshness1.CURRENT,
+                    summary="Committed weekly sales rows snapshot",
+                    source_id=source_id,
+                    source_sha256=sales_batches[0]["source_sha256"],
+                    locator=Locator(
+                        media_id=None,
+                        page=None,
+                        quote=None,
+                        box=None,
+                        row_ids=[],
+                        batch_ids=sales_batch_ids,
+                        query_template_id="sales_window_v1",
+                        query_job_id=None,
+                        query_parameters={"store_id": str(inv.store_id)},
+                    ),
+                )
+                await self.visit_repo.save_evidence(workspace_id, sales_ev)
+                known_evidence_ids.append(sales_ev_id)
+                sales_ev_ids.append(sales_ev_id)
 
         stock_ev_ids: list[UUID] = []
         if stock_batches:
@@ -597,34 +601,38 @@ class VisitService:
             try:
                 source_id = UUID(str(stock_batches[0]["import_id"]))
             except (ValueError, KeyError):
-                source_id = inv.snapshot_id
+                try:
+                    source_id = UUID(str(stock_batches[0]["batch_id"]))
+                except (ValueError, KeyError):
+                    source_id = None
 
-            stock_ev_id = uuid4()
-            stock_ev = Evidence(
-                id=stock_ev_id,
-                investigation_id=inv.id,
-                kind=Kind8.STOCK_ROWS,
-                observed_at=now,
-                retrieved_at=now,
-                freshness=Freshness1.CURRENT,
-                summary="Committed latest inventory snapshot",
-                source_id=source_id,
-                source_sha256=stock_batches[0]["source_sha256"],
-                locator=Locator(
-                    media_id=None,
-                    page=None,
-                    quote=None,
-                    box=None,
-                    row_ids=[],
-                    batch_ids=stock_batch_ids,
-                    query_template_id="latest_stock_v1",
-                    query_job_id=None,
-                    query_parameters={"store_id": str(inv.store_id)},
-                ),
-            )
-            await self.visit_repo.save_evidence(workspace_id, stock_ev)
-            known_evidence_ids.append(stock_ev_id)
-            stock_ev_ids.append(stock_ev_id)
+            if source_id is not None:
+                stock_ev_id = uuid4()
+                stock_ev = Evidence(
+                    id=stock_ev_id,
+                    investigation_id=inv.id,
+                    kind=Kind8.STOCK_ROWS,
+                    observed_at=now,
+                    retrieved_at=now,
+                    freshness=Freshness1.CURRENT,
+                    summary="Committed latest inventory snapshot",
+                    source_id=source_id,
+                    source_sha256=stock_batches[0]["source_sha256"],
+                    locator=Locator(
+                        media_id=None,
+                        page=None,
+                        quote=None,
+                        box=None,
+                        row_ids=[],
+                        batch_ids=stock_batch_ids,
+                        query_template_id="latest_stock_v1",
+                        query_job_id=None,
+                        query_parameters={"store_id": str(inv.store_id)},
+                    ),
+                )
+                await self.visit_repo.save_evidence(workspace_id, stock_ev)
+                known_evidence_ids.append(stock_ev_id)
+                stock_ev_ids.append(stock_ev_id)
 
         cat_pids = policy_ver.catalog_product_ids
 
@@ -728,16 +736,52 @@ class VisitService:
             sales_context, currency=sales_currency, as_of_date=now.date()
         )
 
+        if not cat_pids:
+            inv.state = State.INCOMPLETE
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_repo.update_investigation(
+                workspace_id,
+                inv,
+                expected_version=inv.version,
+            )
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="SUCCEEDED",
+                    summary="Investigation completed with state INCOMPLETE: promotion policy has no catalog products",
+                )
+            return
+
+        sku_to_pid: dict[str, UUID] = {}
+        for pid in cat_pids:
+            prod = await self.catalog_repo.get_product(workspace_id, pid)
+            if prod and prod.sku:
+                sku_to_pid[prod.sku] = prod.id
+
         stock_items: list[StockItem] = []
-        is_backroom = (
-            store and getattr(store, "backroom_location_id", None) == inv.store_id
+        store_backroom_id = (
+            getattr(store, "backroom_location_id", None) if store else None
         )
-        max_age_hours = 4.0 if is_backroom else 24.0
 
         for sf in stock_facts:
+            try:
+                row_loc_id = UUID(str(sf["location_id"]))
+                qty = int(sf["quantity"])
+                norm_units = int(sf.get("normalized_units", qty))
+            except (KeyError, ValueError, TypeError):
+                continue
+
+            is_backroom = bool(store_backroom_id and store_backroom_id == row_loc_id)
+            max_age_hours = 4.0 if is_backroom else 24.0
+
             raw_obs = sf.get("observed_at")
             if isinstance(raw_obs, str):
-                obs_dt = datetime.fromisoformat(raw_obs)
+                try:
+                    obs_dt = datetime.fromisoformat(raw_obs)
+                except ValueError:
+                    obs_dt = now
             elif isinstance(raw_obs, datetime):
                 obs_dt = raw_obs
             else:
@@ -751,14 +795,22 @@ class VisitService:
                 Freshness2.CURRENT if age_hours <= max_age_hours else Freshness2.STALE
             )
 
+            row_sku = sf.get("sku")
+            product_id = (
+                sku_to_pid.get(row_sku, cat_pids[0]) if row_sku else cat_pids[0]
+            )
+            loc_type = (
+                LocationType.BACKROOM if is_backroom else LocationType.DISTRIBUTOR
+            )
+
             stock_items.append(
                 StockItem(
-                    product_id=cat_pids[0],
-                    location_id=sf["location_id"],
-                    location_type=LocationType.BACKROOM,
-                    quantity=int(sf["quantity"]),
+                    product_id=product_id,
+                    location_id=row_loc_id,
+                    location_type=loc_type,
+                    quantity=qty,
                     unit=Unit.UNIT,
-                    units_normalized=int(sf["normalized_units"]),
+                    units_normalized=norm_units,
                     observed_at=obs_dt,
                     freshness=stock_freshness,
                     evidence_id=stock_ev_ids[0] if stock_ev_ids else uuid4(),
