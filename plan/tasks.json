@@ -602,7 +602,8 @@
       "owned_paths": [
         "infra/",
         "scripts/deploy/",
-        "docs/cloud-setup.md"
+        "docs/cloud-setup.md",
+        "tests/deploy/"
       ],
       "requirements": [
         "R01",
