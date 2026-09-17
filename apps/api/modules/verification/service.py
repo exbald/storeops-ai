@@ -119,7 +119,11 @@ class VerificationService:
 
         # 5. Stale policy check (AC34)
         promo = await self.policy_port.get_promotion(workspace_id, inv.promotion_id)
-        if promo and promo.approved_policy and promo.approved_policy.id != inv.policy_version_id:
+        if (
+            promo
+            and promo.approved_policy
+            and promo.approved_policy.id != inv.policy_version_id
+        ):
             inv.policy_stale = True
             inv.version += 1
             inv.updated_at = self.clock.now_utc()
@@ -261,6 +265,7 @@ class VerificationService:
             inv=inv,
             visit=visit,
             after_media_list=after_media_list,
+            pre_job_inv_state=pre_job_inv_state,
         )
 
         latest_job = await self.state_repo.get_job(workspace_id, job.id)
@@ -274,6 +279,7 @@ class VerificationService:
         inv: Investigation,
         visit: Visit,
         after_media_list: list[Media],
+        pre_job_inv_state: State = State.ACCEPTED,
     ) -> None:
         """Execute verification workflow, derive aggregate, and coordinate state resolution."""
         # Claim lease
@@ -282,6 +288,15 @@ class VerificationService:
         )
         if gen is None:
             logger.warning(f"Could not claim lease for verification job {job.id}")
+            inv.state = pre_job_inv_state
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+
+            verification.result = Result1.INCONCLUSIVE
+            verification.version += 1
+            verification.updated_at = self.clock.now_utc()
+            await self.verification_repo.update_verification(workspace_id, verification)
             return
 
         now = self.clock.now_utc()
@@ -357,7 +372,10 @@ class VerificationService:
                     query_parameters={},
                 ),
             )
-            await self.visit_port.save_evidence(workspace_id, evidence)
+            try:
+                await self.visit_port.save_evidence(workspace_id, evidence)
+            except (RuntimeError, ValueError, KeyError, OSError) as ev_err:
+                logger.warning(f"Could not save evidence for media {m.id}: {ev_err}")
 
             # Read actual bytes from BlobRepository (required by multimodal verification)
             raw_bytes: bytes | None = None
@@ -386,7 +404,9 @@ class VerificationService:
                     ValueError,
                     KeyError,
                 ) as e:
-                    logger.warning(f"Could not extract image observations for media {m.id}: {e}")
+                    logger.warning(
+                        f"Could not extract image observations for media {m.id}: {e}"
+                    )
                     obs = None
 
             if obs is None:
@@ -455,7 +475,6 @@ class VerificationService:
         ]
 
         # Snapshot pre-resolution state for saga compensation
-        orig_inv_state = inv.state
         orig_inv_version = inv.version
         orig_inv_latest_ver = inv.latest_verification_id
         orig_act_statuses = [a.status for a in inv.actions]
@@ -505,7 +524,9 @@ class VerificationService:
                 verification.report_id = report_id
                 verification.version += 1
                 verification.updated_at = now
-                await self.verification_repo.update_verification(workspace_id, verification)
+                await self.verification_repo.update_verification(
+                    workspace_id, verification
+                )
             except (RuntimeError, ValueError, KeyError, OSError) as cascade_err:
                 logger.error(
                     f"PASS resolution cascade failed, executing compensating rollback: {cascade_err}"
@@ -533,6 +554,18 @@ class VerificationService:
                 except (RuntimeError, ValueError, KeyError, OSError) as rollback_err:
                     logger.critical(
                         f"Compensating rollback for visit failed: {rollback_err}"
+                    )
+
+                try:
+                    verification.result = Result1.INCONCLUSIVE
+                    verification.version += 1
+                    verification.updated_at = self.clock.now_utc()
+                    await self.verification_repo.update_verification(
+                        workspace_id, verification
+                    )
+                except (RuntimeError, ValueError, KeyError, OSError) as rollback_err:
+                    logger.critical(
+                        f"Compensating rollback for verification failed: {rollback_err}"
                     )
 
                 if gen is not None:
@@ -587,22 +620,44 @@ class VerificationService:
                 verification.report_id = report_id
                 verification.version += 1
                 verification.updated_at = now
-                await self.verification_repo.update_verification(workspace_id, verification)
+                await self.verification_repo.update_verification(
+                    workspace_id, verification
+                )
             except (RuntimeError, ValueError, KeyError, OSError) as cascade_err:
                 logger.error(
                     f"Non-PASS resolution cascade failed, executing compensating rollback: {cascade_err}"
                 )
                 try:
-                    inv.state = orig_inv_state
+                    # Fail-closed: ensure investigation is in NEEDS_WORK so rep can retry per SEMANTICS.md:88
+                    inv.state = State.NEEDS_WORK
                     inv.version = orig_inv_version + 1
                     inv.latest_verification_id = orig_inv_latest_ver
                     inv.updated_at = self.clock.now_utc()
                     await self.visit_port.update_investigation(workspace_id, inv)
                 except (RuntimeError, ValueError, KeyError, OSError) as rollback_err:
-                    logger.critical(
-                        f"Compensating rollback failed: {rollback_err}"
+                    logger.critical(f"Compensating rollback failed: {rollback_err}")
+
+                try:
+                    verification.result = Result1.INCONCLUSIVE
+                    verification.version += 1
+                    verification.updated_at = self.clock.now_utc()
+                    await self.verification_repo.update_verification(
+                        workspace_id, verification
                     )
-                raise
+                except (RuntimeError, ValueError, KeyError, OSError) as rollback_err:
+                    logger.critical(
+                        f"Compensating rollback for verification failed: {rollback_err}"
+                    )
+
+                if gen is not None:
+                    await self.state_repo.update_job_stage(
+                        job_id=job.id,
+                        generation=gen,
+                        stage="COMPLETED",
+                        status="FAILED",
+                        summary=f"Cascade error: {cascade_err}",
+                    )
+                return
 
             if gen is not None:
                 await self.state_repo.update_job_stage(

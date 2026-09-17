@@ -18,9 +18,19 @@ from storeops_contracts.models import (
     ZoneKind,
 )
 
+from apps.api.ai.schemas import (
+    Detection,
+    ImageObservation,
+    ProposedCheck,
+    VerificationProposal,
+)
 from apps.api.core.auth import UserContext
+from apps.api.modules.verification.dependencies import set_model_gateway
 from apps.api.modules.visits.repository import InMemoryVisitRepository
-from tests.verification.conftest import FrozenClock
+from tests.verification.conftest import (
+    FrozenClock,
+    ScenarioModelGateway,
+)
 
 
 @pytest.mark.asyncio
@@ -169,15 +179,6 @@ async def test_saga_compensation_on_visit_update_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC20/Saga: If visit update fails during saga-coordinated PASS resolution, compensation rolls back investigation."""
-    from apps.api.ai.schemas import (
-        Detection,
-        ImageObservation,
-        ProposedCheck,
-        VerificationProposal,
-    )
-    from apps.api.modules.verification.dependencies import set_model_gateway
-    from tests.verification.conftest import ScenarioModelGateway
-
     inv, _actions = sample_investigation_accepted
     _promo, pol_ver = sample_promotion_and_policy
     now = frozen_clock.now_utc()
@@ -275,9 +276,116 @@ async def test_saga_compensation_on_visit_update_failure(
     )
     assert resp.status_code == 202
 
-    # After saga rollback compensation, investigation state must NOT be RESOLVED
+    # After saga rollback compensation, investigation state must be in NEEDS_WORK (not stuck in VERIFYING or RESOLVED)
     persisted_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
     assert persisted_inv is not None
-    assert persisted_inv.state in (State.ACCEPTED, State.NEEDS_WORK)
+    assert persisted_inv.state == State.NEEDS_WORK
     assert persisted_inv.state != State.RESOLVED
 
+    # Verification must have terminal INCONCLUSIVE result
+    v_id = resp.json()["resource_id"]
+    ver_resp = await client.get(
+        f"/verifications/{v_id}",
+        headers=auth_headers,
+    )
+    assert ver_resp.status_code == 200
+    assert ver_resp.json()["result"] == "INCONCLUSIVE"
+
+
+@pytest.mark.asyncio
+async def test_non_pass_cascade_compensation_restores_needs_work_and_allows_retry(
+    test_workspace_id: UUID,
+    rep_user: UserContext,
+    sample_visit: Visit,
+    sample_store: Store,
+    sample_product: Product,
+    sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
+    sample_investigation_accepted: tuple[Investigation, list[Action]],
+    frozen_clock: FrozenClock,
+    memory_visit_repo: InMemoryVisitRepository,
+    auth_headers: dict[str, str],
+    make_after_media: Any,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-PASS cascade failure compensates cleanly to NEEDS_WORK with INCONCLUSIVE and allows re-verify."""
+    inv, _actions = sample_investigation_accepted
+    _, pol_ver = sample_promotion_and_policy
+    now = frozen_clock.now_utc()
+
+    media = await make_after_media(
+        sha256="e" * 64,
+        filename="me.jpg",
+        captured_at=now - timedelta(minutes=2),
+    )
+
+    # Register FAIL proposal
+    gateway = ScenarioModelGateway()
+    gateway.register_response(
+        VerificationProposal,
+        VerificationProposal(
+            checks=[
+                ProposedCheck(
+                    rule_id=pol_ver.rules[0].rule_id,
+                    result="FAIL",
+                    evidence_ids=[media.id],
+                    explanation="Rule violated",
+                ),
+            ],
+            requested_retakes=[],
+        ),
+    )
+    set_model_gateway(gateway)
+
+    call_count = 0
+    orig_update_inv = memory_visit_repo.update_investigation
+
+    async def fail_second_update_inv(
+        workspace_id: UUID, investigation: Investigation
+    ) -> Investigation:
+        nonlocal call_count
+        call_count += 1
+        # Call 1 is verify_investigation entering VERIFYING
+        # Call 2 is non-PASS cascade step 2 transitioning to NEEDS_WORK
+        if call_count == 2:
+            raise RuntimeError("Simulated DB timeout on non-PASS investigation update")
+        return await orig_update_inv(workspace_id, investigation)
+
+    monkeypatch.setattr(
+        memory_visit_repo, "update_investigation", fail_second_update_inv
+    )
+
+    resp = await client.post(
+        f"/investigations/{inv.id}/verify",
+        json={
+            "expected_version": inv.version,
+            "after_media_ids": [str(media.id)],
+        },
+        headers={**auth_headers, "Idempotency-Key": "idem-nonpass-fail"},
+    )
+    assert resp.status_code == 202
+    v_id = resp.json()["resource_id"]
+
+    # Investigation must be in NEEDS_WORK (not VERIFYING!)
+    persisted_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
+    assert persisted_inv is not None
+    assert persisted_inv.state == State.NEEDS_WORK
+
+    # Verification must have terminal INCONCLUSIVE result
+    ver_resp = await client.get(
+        f"/verifications/{v_id}",
+        headers=auth_headers,
+    )
+    assert ver_resp.status_code == 200
+    assert ver_resp.json()["result"] == "INCONCLUSIVE"
+
+    # Retry via POST verifyInvestigation must not be blocked (SEMANTICS.md:88)
+    retry_resp = await client.post(
+        f"/investigations/{inv.id}/verify",
+        json={
+            "expected_version": persisted_inv.version,
+            "after_media_ids": [str(media.id)],
+        },
+        headers={**auth_headers, "Idempotency-Key": "idem-nonpass-retry"},
+    )
+    assert retry_resp.status_code == 202

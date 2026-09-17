@@ -118,7 +118,9 @@ async def test_ac18_any_unknown_derives_inconclusive_and_does_not_close(
     assert updated_inv.state == State.NEEDS_WORK
 
     # Visit remains OPEN, NOT CLOSED
-    updated_visit = await memory_visit_repo.get_visit(test_workspace_id, sample_visit.id)
+    updated_visit = await memory_visit_repo.get_visit(
+        test_workspace_id, sample_visit.id
+    )
     assert updated_visit is not None
     assert updated_visit.status == Status5.OPEN
 
@@ -209,7 +211,9 @@ async def test_ac18_all_fail_derives_fail(
     assert updated_inv is not None
     assert updated_inv.state == State.NEEDS_WORK
 
-    updated_visit = await memory_visit_repo.get_visit(test_workspace_id, sample_visit.id)
+    updated_visit = await memory_visit_repo.get_visit(
+        test_workspace_id, sample_visit.id
+    )
     assert updated_visit is not None
     assert updated_visit.status == Status5.OPEN
 

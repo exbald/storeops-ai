@@ -69,7 +69,10 @@ from apps.api.modules.visits.dependencies import (
 from apps.api.modules.visits.repository import InMemoryVisitRepository
 
 # Mount verification router in test app if not already mounted
-if not any(getattr(r, "path", None) == "/investigations/{investigation_id}/verify" for r in app.routes):
+if not any(
+    getattr(r, "path", None) == "/investigations/{investigation_id}/verify"
+    for r in app.routes
+):
     app.include_router(verification_router)
 
 
@@ -180,7 +183,9 @@ async def client(
     frozen_clock: FrozenClock,
 ):
     app.dependency_overrides[get_visit_repository] = lambda: memory_visit_repo
-    app.dependency_overrides[get_verification_repository] = lambda: memory_verification_repo
+    app.dependency_overrides[get_verification_repository] = lambda: (
+        memory_verification_repo
+    )
     app.dependency_overrides[get_catalog_repository] = lambda: memory_catalog_repo
     app.dependency_overrides[get_policy_repository] = lambda: memory_policy_repo
     app.dependency_overrides[get_blob_repository] = lambda: memory_blob_repo
@@ -189,7 +194,9 @@ async def client(
     set_visit_repository(memory_visit_repo)
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as test_client:
+    async with AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 
@@ -232,7 +239,9 @@ async def sample_store(
         distributor_location_id=None,
         active=True,
     )
-    saved_store, _ = await memory_catalog_repo.create_store_with_backroom(store, backroom)
+    saved_store, _ = await memory_catalog_repo.create_store_with_backroom(
+        store, backroom
+    )
     return saved_store
 
 

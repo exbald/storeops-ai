@@ -198,7 +198,9 @@ class ExecutionVerifier:
             )
             if check_proposal.result == "PASS" and pred_res.value != "PASS":
                 effective_result = pred_res.value
-                explanation = f"[Predicate Override: {pred_exp}] {check_proposal.explanation}"
+                explanation = (
+                    f"[Predicate Override: {pred_exp}] {check_proposal.explanation}"
+                )
             else:
                 effective_result = check_proposal.result
                 explanation = check_proposal.explanation
@@ -241,8 +243,6 @@ class ExecutionVerifier:
         # Derive aggregate result in strict order per specs/03-workflows.md:87-90
         aggregate = derive_aggregate_result(final_checks)
 
-        retakes = [
-            RequestedRetake(root=r) for r in proposal.requested_retakes
-        ]
+        retakes = [RequestedRetake(root=r) for r in proposal.requested_retakes]
 
         return final_checks, aggregate, retakes

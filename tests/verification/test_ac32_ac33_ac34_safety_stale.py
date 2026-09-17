@@ -46,9 +46,7 @@ class MalformedModelGateway(DeterministicModelGateway):
             self.call_count += 1
             if self.call_count <= self.fail_times:
                 raise ModelSchemaError("Simulated unparseable model response")
-        return await super().generate_structured(
-            prompt, response_schema, images, pdfs
-        )
+        return await super().generate_structured(prompt, response_schema, images, pdfs)
 
 
 @pytest.mark.asyncio
@@ -151,7 +149,9 @@ async def test_ac33_invalid_model_fails_closed_without_pass_or_closure(
     assert updated_inv.state == State.NEEDS_WORK
 
     # Visit remains OPEN
-    updated_visit = await memory_visit_repo.get_visit(test_workspace_id, sample_visit.id)
+    updated_visit = await memory_visit_repo.get_visit(
+        test_workspace_id, sample_visit.id
+    )
     assert updated_visit is not None
     assert updated_visit.status == Status5.OPEN
 
@@ -299,4 +299,3 @@ async def test_empty_evidence_ids_fails_grounding(
     updated_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
     assert updated_inv is not None
     assert updated_inv.state == State.NEEDS_WORK
-

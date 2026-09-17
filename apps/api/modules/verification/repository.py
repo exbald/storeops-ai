@@ -42,8 +42,8 @@ class InMemoryVerificationRepository:
     async def save_verification(
         self, workspace_id: UUID, verification: Verification
     ) -> Verification:
-        self._verifications[(workspace_id, verification.id)] = (
-            verification.model_copy(deep=True)
+        self._verifications[(workspace_id, verification.id)] = verification.model_copy(
+            deep=True
         )
         return verification.model_copy(deep=True)
 
@@ -56,8 +56,8 @@ class InMemoryVerificationRepository:
     async def update_verification(
         self, workspace_id: UUID, verification: Verification
     ) -> Verification:
-        self._verifications[(workspace_id, verification.id)] = (
-            verification.model_copy(deep=True)
+        self._verifications[(workspace_id, verification.id)] = verification.model_copy(
+            deep=True
         )
         return verification.model_copy(deep=True)
 

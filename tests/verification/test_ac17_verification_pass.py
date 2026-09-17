@@ -204,7 +204,9 @@ async def test_ac17_verification_pass_saga_resolution(
     assert updated_inv.latest_verification_id == UUID(v_id)
 
     # Visit CLOSED via saga coordination
-    updated_visit = await memory_visit_repo.get_visit(test_workspace_id, sample_visit.id)
+    updated_visit = await memory_visit_repo.get_visit(
+        test_workspace_id, sample_visit.id
+    )
     assert updated_visit is not None
     assert updated_visit.status == Status5.CLOSED
 
