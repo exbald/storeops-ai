@@ -22,6 +22,16 @@ import type {
   Workspace,
   Membership,
   Rule,
+  Visit,
+  Investigation,
+  Action,
+  Verification,
+  Report,
+  Evidence,
+  Job,
+  JobEvent,
+  Media,
+  Schemas,
 } from "@storeops/contracts";
 
 export const IS_TEST_DOUBLE = true;
@@ -252,5 +262,181 @@ export const MOCK_PROMOTIONS: Promotion[] = [
     extracted_rules: MOCK_RULES,
     extraction_gaps: [],
     approved_policy: MOCK_POLICY_VERSIONS[0],
+  },
+];
+
+export const MOCK_STORE_HEALTH: Record<string, Schemas["StoreHealth"]> = {
+  "00000000-0000-0000-0000-000000000021": {
+    store: MOCK_STORES[0],
+    metrics: null,
+    readiness: ["PROMOTION_ACTIVE", "DATA_CURRENT"],
+    freshness: "CURRENT",
+  },
+  "00000000-0000-0000-0000-000000000022": {
+    store: MOCK_STORES[1],
+    metrics: null,
+    readiness: ["DATA_MISSING"],
+    freshness: "MISSING",
+  },
+};
+
+export const MOCK_VISITS: Visit[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000080",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-17T09:00:00Z",
+    updated_at: "2026-09-17T09:00:00Z",
+    store_id: "00000000-0000-0000-0000-000000000021",
+    notes: "Initial visit check",
+    visit_started_at: "2026-09-17T09:00:00Z",
+    status: "OPEN",
+    before_media_ids: [],
+    after_media_ids: [],
+    active_investigation_id: "00000000-0000-0000-0000-000000000090",
+    report_ids: [],
+  },
+];
+
+export const MOCK_INVESTIGATIONS: Investigation[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000090",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-17T09:30:00Z",
+    updated_at: "2026-09-17T09:30:00Z",
+    store_id: "00000000-0000-0000-0000-000000000021",
+    visit_id: "00000000-0000-0000-0000-000000000080",
+    promotion_id: "00000000-0000-0000-0000-000000000061",
+    policy_version_id: "00000000-0000-0000-0000-000000000071",
+    snapshot_id: "00000000-0000-0000-0000-000000000091",
+    state: "PROPOSED",
+    snapshot_at: "2026-09-17T09:30:00Z",
+    metrics: null,
+    diagnosis: {
+      hypothesis: "EXECUTION",
+      support: "SUPPORTED",
+      summary: "Detected missing facings for Coca-Cola Original on eye-level shelf.",
+      claims: [
+        {
+          id: "00000000-0000-0000-0000-000000000092",
+          kind: "OBSERVATION",
+          text: "Facing count is below promotion minimum.",
+          evidence_ids: ["00000000-0000-0000-0000-000000000095"],
+        },
+      ],
+      alternatives: [],
+      unresolved_questions: [],
+    },
+    actions: [
+      {
+        id: "00000000-0000-0000-0000-000000000093",
+        kind: "RESTORE_FACINGS",
+        rule_ids: ["00000000-0000-0000-0000-000000000051"],
+        claim_ids: ["00000000-0000-0000-0000-000000000092"],
+        evidence_ids: ["00000000-0000-0000-0000-000000000095"],
+        instruction: "Restore facings to policy minimum on shelf-main.",
+        required_zone_ids: ["shelf-main"],
+        status: "OPEN",
+      },
+    ],
+    plan_revision: 1,
+    accepted_at: null,
+    accepted_by: null,
+    current_job_id: "00000000-0000-0000-0000-000000000094",
+    latest_verification_id: null,
+    policy_stale: false,
+  },
+];
+
+export const MOCK_VERIFICATIONS: Verification[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000075",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-17T10:00:00Z",
+    updated_at: "2026-09-17T10:00:00Z",
+    investigation_id: "00000000-0000-0000-0000-000000000090",
+    plan_revision: 1,
+    after_media_ids: ["00000000-0000-0000-0000-000000000096"],
+    job_id: "00000000-0000-0000-0000-000000000097",
+    checks: [
+      {
+        rule_id: "00000000-0000-0000-0000-000000000051",
+        result: "PASS",
+        evidence_ids: ["00000000-0000-0000-0000-000000000096"],
+        explanation: "Observed target facings restored.",
+      },
+    ],
+    result: "PASS",
+    requested_retakes: [],
+    report_id: "00000000-0000-0000-0000-000000000081",
+  },
+];
+
+export const MOCK_REPORTS: Report[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000081",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    visit_id: "00000000-0000-0000-0000-000000000080",
+    investigation_id: "00000000-0000-0000-0000-000000000090",
+    verification_id: "00000000-0000-0000-0000-000000000075",
+    created_at: "2026-09-17T10:05:00Z",
+    outcome: "PASS",
+    summary: "All promotional facing requirements successfully verified.",
+    checks: [
+      {
+        rule_id: "00000000-0000-0000-0000-000000000051",
+        result: "PASS",
+        evidence_ids: ["00000000-0000-0000-0000-000000000096"],
+        explanation: "Observed 3 facings restored on eye-level shelf.",
+      },
+    ],
+    evidence_ids: [
+      "00000000-0000-0000-0000-000000000095",
+      "00000000-0000-0000-0000-000000000096",
+    ],
+    policy_version_id: "00000000-0000-0000-0000-000000000071",
+  },
+];
+
+export const MOCK_JOBS: Job[] = [
+  {
+    id: "00000000-0000-0000-0000-000000000094",
+    workspace_id: DEFAULT_WORKSPACE_ID,
+    version: 1,
+    created_at: "2026-09-17T09:30:00Z",
+    updated_at: "2026-09-17T09:30:05Z",
+    type: "INVESTIGATE",
+    status: "SUCCEEDED",
+    resource_id: "00000000-0000-0000-0000-000000000090",
+    resource_type: "INVESTIGATION",
+    attempt: 1,
+    stage: "COMPLETE",
+    started_at: "2026-09-17T09:30:01Z",
+    finished_at: "2026-09-17T09:30:05Z",
+    error: null,
+    linked_previous_job_id: null,
+    model_id: "gemini-2.5-flash",
+    usage: null,
+  },
+];
+
+export const MOCK_JOB_EVENTS: JobEvent[] = [
+  {
+    sequence: 1,
+    job_id: "00000000-0000-0000-0000-000000000094",
+    at: "2026-09-17T09:30:01Z",
+    stage: "ANALYZING",
+    summary: "Investigation analysis initiated.",
+    status: "RUNNING",
+  },
+  {
+    sequence: 2,
+    job_id: "00000000-0000-0000-0000-000000000094",
+    at: "2026-09-17T09:30:05Z",
+    stage: "COMPLETE",
+    summary: "Investigation proposal created successfully.",
+    status: "SUCCEEDED",
   },
 ];

@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:e2e": "node --experimental-strip-types --test test/*.test.ts"
   },
   "dependencies": {
     "@storeops/contracts": "workspace:*"
