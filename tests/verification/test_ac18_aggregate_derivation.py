@@ -64,13 +64,13 @@ async def test_ac18_any_unknown_derives_inconclusive_and_does_not_close(
         ProposedCheck(
             rule_id=r1.rule_id,
             result="PASS",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Shelf facings restored to 3.",
         ),
         ProposedCheck(
             rule_id=r2.rule_id,
             result="UNKNOWN",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Endcap zone obstructed by customer cart; unable to verify display.",
         ),
     ]
@@ -164,13 +164,13 @@ async def test_ac18_all_fail_derives_fail(
         ProposedCheck(
             rule_id=r1.rule_id,
             result="FAIL",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Only 1 facing observed, 3 required.",
         ),
         ProposedCheck(
             rule_id=r2.rule_id,
             result="FAIL",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Endcap display completely absent.",
         ),
     ]
@@ -248,13 +248,13 @@ async def test_ac18_mixed_pass_fail_derives_partial(
         ProposedCheck(
             rule_id=r1.rule_id,
             result="PASS",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Facings compliant.",
         ),
         ProposedCheck(
             rule_id=r2.rule_id,
             result="FAIL",
-            evidence_ids=[],
+            evidence_ids=[media.id],
             explanation="Display missing.",
         ),
     ]

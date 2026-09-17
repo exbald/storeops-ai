@@ -81,7 +81,7 @@ async def test_ac17_verification_pass_atomic_resolution(
                 ProposedCheck(
                     rule_id=r.rule_id,
                     result="PASS",
-                    evidence_ids=[],
+                    evidence_ids=[media1.id],
                     explanation=f"Rule {r.rule_id} observed compliant in verification imagery.",
                 )
                 for r in pol_ver.rules

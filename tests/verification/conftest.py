@@ -59,11 +59,16 @@ from apps.api.modules.verification.dependencies import (
     set_verification_repository,
 )
 from apps.api.modules.verification.repository import InMemoryVerificationRepository
+from apps.api.modules.verification.router import router as verification_router
 from apps.api.modules.visits.dependencies import (
     get_visit_repository,
     set_visit_repository,
 )
 from apps.api.modules.visits.repository import InMemoryVisitRepository
+
+# Mount verification router in test app if not already mounted
+if not any(getattr(r, "path", None) == "/investigations/{investigation_id}/verify" for r in app.routes):
+    app.include_router(verification_router)
 
 
 class FrozenClock:
@@ -333,10 +338,17 @@ async def sample_before_media(
     sample_store: Store,
     frozen_clock: FrozenClock,
     memory_catalog_repo: InMemoryCatalogRepository,
+    memory_blob_repo: LocalFileSystemBlobRepository,
 ) -> Media:
     now = frozen_clock.now_utc() - timedelta(minutes=10)
+    mid = uuid4()
+    raw_b = b"before image data bytes " + str(mid).encode()
+    path = memory_blob_repo._file_path(mid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw_b)
+
     media = Media(
-        id=uuid4(),
+        id=mid,
         workspace_id=test_workspace_id,
         version=1,
         created_at=now,
@@ -353,7 +365,7 @@ async def sample_before_media(
         captured_at=now,
         original_sha256="1" * 64,
         normalized_sha256="1" * 64,
-        byte_size=1024,
+        byte_size=len(raw_b),
         width=1000,
         height=800,
         rejection=None,
@@ -373,26 +385,20 @@ async def sample_visit(
     memory_catalog_repo: InMemoryCatalogRepository,
 ) -> Visit:
     now = frozen_clock.now_utc() - timedelta(minutes=15)
-    visit_id = uuid4()
-
-    sample_before_media.visit_id = visit_id
-    sample_before_media.version += 1
-    await memory_catalog_repo.update_media(sample_before_media)
-
     visit = Visit(
-        id=visit_id,
+        id=uuid4(),
         workspace_id=test_workspace_id,
         version=1,
         created_at=now,
         updated_at=now,
         store_id=sample_store.id,
-        notes="Audit visit for snack promo",
-        visit_started_at=now,
         status=Status5.OPEN,
         before_media_ids=[sample_before_media.id],
         after_media_ids=[],
         active_investigation_id=None,
         report_ids=[],
+        visit_started_at=now,
+        notes="Routine promotional compliance check",
     )
     return await memory_visit_repo.create_visit(test_workspace_id, visit)
 
@@ -400,34 +406,31 @@ async def sample_visit(
 @pytest_asyncio.fixture
 async def sample_investigation_accepted(
     test_workspace_id: UUID,
-    sample_visit: Visit,
     sample_store: Store,
-    sample_product: Product,
+    sample_visit: Visit,
     sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
     frozen_clock: FrozenClock,
     memory_visit_repo: InMemoryVisitRepository,
 ) -> tuple[Investigation, list[Action]]:
-    now = frozen_clock.now_utc() - timedelta(minutes=5)
     promo, pol_ver = sample_promotion_and_policy
-
+    now = frozen_clock.now_utc() - timedelta(minutes=5)
     inv_id = uuid4()
-    job_id = uuid4()
     snapshot_id = uuid4()
 
-    evidence_id = uuid4()
     claim_id1 = uuid4()
     claim_id2 = uuid4()
+    evidence_id = uuid4()
 
     claim1 = Claim(
         id=claim_id1,
         kind=Kind6.OBSERVATION,
-        text="Facing deficit observed on shelf 1",
+        text="Shelf out of compliance",
         evidence_ids=[evidence_id],
     )
     claim2 = Claim(
         id=claim_id2,
         kind=Kind6.OBSERVATION,
-        text="Promotional endcap not installed",
+        text="Endcap display missing",
         evidence_ids=[evidence_id],
     )
 
@@ -472,21 +475,20 @@ async def sample_investigation_accepted(
         promotion_id=promo.id,
         policy_version_id=pol_ver.id,
         snapshot_id=snapshot_id,
-        state=State.ACCEPTED,
         snapshot_at=now,
         metrics=None,
+        state=State.ACCEPTED,
+        plan_revision=1,
         diagnosis=diagnosis,
         actions=[action1, action2],
-        plan_revision=1,
+        latest_verification_id=None,
+        current_job_id=uuid4(),
         accepted_at=now,
         accepted_by="rep-user-1",
-        current_job_id=job_id,
-        latest_verification_id=None,
         policy_stale=False,
     )
     saved_inv = await memory_visit_repo.create_investigation(test_workspace_id, inv)
 
-    # Bind active investigation to visit
     sample_visit.active_investigation_id = inv_id
     sample_visit.version += 1
     sample_visit.updated_at = now
@@ -502,6 +504,7 @@ def make_after_media(
     sample_visit: Visit,
     frozen_clock: FrozenClock,
     memory_catalog_repo: InMemoryCatalogRepository,
+    memory_blob_repo: LocalFileSystemBlobRepository,
 ):
     async def _make(
         visit_id: UUID | None = None,
@@ -511,10 +514,17 @@ def make_after_media(
         filename: str = "after.jpg",
         zone_id: str = "zone-shelf-1",
         zone_kind: ZoneKind = ZoneKind.SHELF,
+        image_bytes: bytes | None = None,
     ) -> Media:
         now = frozen_clock.now_utc()
+        mid = uuid4()
+        raw_b = image_bytes or (b"test image data bytes " + str(mid).encode())
+        path = memory_blob_repo._file_path(mid)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw_b)
+
         m = Media(
-            id=uuid4(),
+            id=mid,
             workspace_id=test_workspace_id,
             version=1,
             created_at=now,
@@ -531,7 +541,7 @@ def make_after_media(
             captured_at=captured_at if captured_at is not None else now,
             original_sha256=sha256,
             normalized_sha256=sha256,
-            byte_size=2048,
+            byte_size=len(raw_b),
             width=1920,
             height=1080,
             rejection=None,

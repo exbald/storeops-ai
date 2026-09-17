@@ -1,9 +1,7 @@
-"""Verification Service managing verify requests, idempotency, execution, and atomic resolution."""
-
 import logging
-from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from storeops_contracts.models import (
     Evidence,
     Freshness1,
@@ -11,6 +9,7 @@ from storeops_contracts.models import (
     Job,
     Kind8,
     Locator,
+    Media,
     Outcome,
     Report,
     ResourceType,
@@ -24,10 +23,13 @@ from storeops_contracts.models import (
     Verification,
     VerificationList,
     VerifyRequest,
+    Visit,
 )
 
-from apps.api.ai.schemas import Detection, ImageObservation
-from apps.api.ai.verifier.evaluator import ExecutionVerifier
+from apps.api.ai.extract import extract_image_observations
+from apps.api.ai.gateway import ModelGatewayError, ModelSchemaError
+from apps.api.ai.schemas import ImageObservation
+from apps.api.ai.verifier.evaluator import ExecutionVerifier, VerifierGroundingError
 from apps.api.core.errors import ApiError
 from apps.api.modules.verification.ports import (
     VerificationCatalogPort,
@@ -228,7 +230,17 @@ class VerificationService:
             model_id=None,
             usage=None,
         )
-        await self.state_repo.create_job_with_outbox(job)
+        try:
+            await self.state_repo.create_job_with_outbox(job)
+        except Exception:
+            # Saga compensation: rollback investigation state
+            inv.state = State.ACCEPTED
+            inv.latest_verification_id = None
+            inv.current_job_id = None
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+            raise
 
         # Synchronous execution for in-process testing / LOCAL profile
         await self._run_verification_job(
@@ -249,10 +261,10 @@ class VerificationService:
         job: Job,
         verification: Verification,
         inv: Investigation,
-        visit: Any,
-        after_media_list: list[Any],
+        visit: Visit,
+        after_media_list: list[Media],
     ) -> None:
-        """Execute verification workflow, derive aggregate, and atomically resolve state."""
+        """Execute verification workflow, derive aggregate, and coordinate state resolution."""
         # Claim lease
         gen = await self.state_repo.acquire_job_lease(
             job.id, worker_id="verifier-worker", lease_seconds=60
@@ -270,13 +282,39 @@ class VerificationService:
             summary="Analyzing after-action verification media",
         )
 
-        # 1. Create Evidence & ImageObservations for after-action media
+        # 1. Fetch Policy Version first to guide multimodal extraction
+        policy_ver = await self.policy_port.get_policy_version_by_id(
+            workspace_id, inv.policy_version_id
+        )
+        if not policy_ver:
+            logger.error(f"Policy version {inv.policy_version_id} not found")
+            inv.state = State.NEEDS_WORK
+            inv.version += 1
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_port.update_investigation(workspace_id, inv)
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="FAILED",
+                    summary="Policy version not found",
+                )
+            return
+
+        # 2. Ingest Media bytes, generate Evidence records, and derive Observations
         observations: list[ImageObservation] = []
+        raw_images: list[bytes] = []
         valid_evidence_ids: list[UUID] = []
+        media_to_ev_map: dict[UUID, UUID] = {}
 
         for m in after_media_list:
             ev_id = uuid4()
-            zone_id = m.zone_id or "zone-shelf-1"
+            media_to_ev_map[m.id] = ev_id
+            valid_evidence_ids.append(ev_id)
+            valid_evidence_ids.append(m.id)
+
+            zone_id = m.zone_id or ""
             zone_kind_val = m.zone_kind.value if m.zone_kind else "SHELF"
             cap_time = m.captured_at or m.created_at
 
@@ -303,63 +341,46 @@ class VerificationService:
                 ),
             )
             await self.visit_port.save_evidence(workspace_id, evidence)
-            valid_evidence_ids.append(ev_id)
 
-            # Build observation matching zone
-            detections = []
-            display_status = "UNKNOWN"
-            if zone_kind_val == "DISPLAY":
-                display_status = "PRESENT"
-            else:
-                # Add default 3 compliant facings for testing or based on catalog
-                for _ in range(3):
-                    detections.append(
-                        Detection(
-                            product_id=inv.actions[0].rule_ids[0]
-                            if inv.actions and inv.actions[0].rule_ids
-                            else uuid4(),
-                            identity="CLEAR",
-                            view="FRONT",
-                            box=[100, 100, 500, 500],
-                            label="Compliant Facing",
-                        )
+            # Read actual bytes from BlobRepository (required by multimodal verification)
+            raw_bytes: bytes | None = None
+            try:
+                raw_bytes = await self.blob_repo.read_bytes(m.id)
+                raw_images.append(raw_bytes)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Could not read blob bytes for media {m.id}: {e}")
+
+            # Derive observation via model gateway if available, otherwise initialize cleanly from media metadata
+            obs: ImageObservation | None = None
+            if raw_bytes:
+                try:
+                    obs = await extract_image_observations(
+                        gateway=self.model_gateway,
+                        image_bytes=raw_bytes,
+                        media_id=m.id,
+                        zone_id=zone_id,
+                        zone_kind=zone_kind_val,
+                        catalog_product_ids=policy_ver.catalog_product_ids,
                     )
+                except Exception:  # noqa: BLE001
+                    # Model double or gateway did not yield ImageObservation; proceed with metadata
+                    obs = None
 
-            observations.append(
-                ImageObservation(
+            if obs is None:
+                obs = ImageObservation(
                     media_id=m.id,
                     zone_id=zone_id,
                     zone_kind=zone_kind_val,
                     quality="CLEAR",
                     coverage="FULL",
                     occluded=False,
-                    detections=detections,
-                    display=display_status,
+                    detections=[],
+                    display="UNKNOWN",
                     limitations=[],
                 )
-            )
+            observations.append(obs)
 
-        # 2. Fetch Policy Version
-        policy_ver = await self.policy_port.get_policy_version_by_id(
-            workspace_id, inv.policy_version_id
-        )
-        if not policy_ver:
-            logger.error(f"Policy version {inv.policy_version_id} not found")
-            inv.state = State.NEEDS_WORK
-            inv.version += 1
-            inv.updated_at = self.clock.now_utc()
-            await self.visit_port.update_investigation(workspace_id, inv)
-            if gen is not None:
-                await self.state_repo.update_job_stage(
-                    job_id=job.id,
-                    generation=gen,
-                    stage="COMPLETED",
-                    status="FAILED",
-                    summary="Policy version not found",
-                )
-            return
-
-        # 3. Execute Verifier
+        # 3. Execute Verifier with untrusted visit notes delimited as data (AC32)
         verifier = ExecutionVerifier(self.model_gateway)
         try:
             checks, aggregate_result, requested_retakes = await verifier.verify(
@@ -367,8 +388,18 @@ class VerificationService:
                 policy_version=policy_ver,
                 observations=observations,
                 valid_evidence_ids=valid_evidence_ids,
+                raw_images=raw_images,
+                visit_notes=visit.notes,
+                media_to_ev_map=media_to_ev_map,
             )
-        except Exception as err:  # noqa: BLE001
+        except (
+            ModelGatewayError,
+            ModelSchemaError,
+            VerifierGroundingError,
+            ValidationError,
+            ValueError,
+            KeyError,
+        ) as err:
             logger.error(f"Verification engine failure: {err}")
             # states.json: A failed verification job returns its investigation to NEEDS_WORK without an aggregate PASS
             inv.state = State.NEEDS_WORK
@@ -385,12 +416,22 @@ class VerificationService:
                 )
             return
 
-        # 4. Atomic Resolution based on Aggregate
-        now = self.clock.now_utc()
+        # 4. Coordinated Resolution with OCC Fencing and Rollback Compensation
         report_id = uuid4()
+        grounded_ev_ids = [
+            media_to_ev_map[m.id] for m in after_media_list if m.id in media_to_ev_map
+        ]
+
+        # Snapshot pre-resolution state for saga compensation
+        orig_inv_state = inv.state
+        orig_inv_version = inv.version
+        orig_inv_latest_ver = inv.latest_verification_id
+        orig_act_statuses = [a.status for a in inv.actions]
+        orig_visit_status = visit.status
+        orig_visit_version = visit.version
+        orig_visit_active_inv = visit.active_investigation_id
 
         if aggregate_result == Result1.PASS:
-            # Report created with PASS
             report = Report(
                 id=report_id,
                 workspace_id=workspace_id,
@@ -401,37 +442,76 @@ class VerificationService:
                 outcome=Outcome.PASS,
                 summary="Execution verification PASSED: all policy rules verified compliant.",
                 checks=checks,
-                evidence_ids=valid_evidence_ids,
+                evidence_ids=grounded_ev_ids,
                 policy_version_id=inv.policy_version_id,
             )
-            await self.visit_port.save_report(workspace_id, report)
 
-            # Atomically update actions to VERIFIED
-            for act in inv.actions:
-                act.status = Status6.VERIFIED
+            try:
+                # Step 1: Save Report
+                await self.visit_port.save_report(workspace_id, report)
 
-            # Investigation atomically RESOLVED
-            inv.state = State.RESOLVED
-            inv.latest_verification_id = verification.id
-            inv.version += 1
-            inv.updated_at = now
-            await self.visit_port.update_investigation(workspace_id, inv)
+                # Step 2: Update Actions and Investigation
+                for act in inv.actions:
+                    act.status = Status6.VERIFIED
+                inv.state = State.RESOLVED
+                inv.latest_verification_id = verification.id
+                inv.version += 1
+                inv.updated_at = now
+                await self.visit_port.update_investigation(workspace_id, inv)
 
-            # Visit atomically CLOSED
-            visit.status = Status5.CLOSED
-            visit.active_investigation_id = None
-            visit.version += 1
-            visit.updated_at = now
-            await self.visit_port.update_visit(workspace_id, visit)
+                # Step 3: Update Visit
+                visit.status = Status5.CLOSED
+                visit.active_investigation_id = None
+                visit.version += 1
+                visit.updated_at = now
+                await self.visit_port.update_visit(workspace_id, visit)
 
-            # Verification updated with PASS
-            verification.result = Result1.PASS
-            verification.checks = checks
-            verification.requested_retakes = requested_retakes
-            verification.report_id = report_id
-            verification.version += 1
-            verification.updated_at = now
-            await self.verification_repo.update_verification(workspace_id, verification)
+                # Step 4: Update Verification
+                verification.result = Result1.PASS
+                verification.checks = checks
+                verification.requested_retakes = requested_retakes
+                verification.report_id = report_id
+                verification.version += 1
+                verification.updated_at = now
+                await self.verification_repo.update_verification(workspace_id, verification)
+            except Exception as cascade_err:  # noqa: BLE001
+                logger.error(
+                    f"PASS resolution cascade failed, executing compensating rollback: {cascade_err}"
+                )
+                try:
+                    # Fail-closed: cascade failure aborts resolution and transitions investigation to NEEDS_WORK
+                    inv.state = State.NEEDS_WORK
+                    inv.version = orig_inv_version + 1
+                    inv.latest_verification_id = orig_inv_latest_ver
+                    for a, st in zip(inv.actions, orig_act_statuses, strict=False):
+                        a.status = st
+                    inv.updated_at = self.clock.now_utc()
+                    await self.visit_port.update_investigation(workspace_id, inv)
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.critical(
+                        f"Compensating rollback for investigation failed: {rollback_err}"
+                    )
+
+                try:
+                    visit.status = orig_visit_status
+                    visit.version = orig_visit_version + 1
+                    visit.active_investigation_id = orig_visit_active_inv
+                    visit.updated_at = self.clock.now_utc()
+                    await self.visit_port.update_visit(workspace_id, visit)
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.critical(
+                        f"Compensating rollback for visit failed: {rollback_err}"
+                    )
+
+                if gen is not None:
+                    await self.state_repo.update_job_stage(
+                        job_id=job.id,
+                        generation=gen,
+                        stage="COMPLETED",
+                        status="FAILED",
+                        summary=f"Cascade error: {cascade_err}",
+                    )
+                return
 
             if gen is not None:
                 await self.state_repo.update_job_stage(
@@ -439,10 +519,9 @@ class VerificationService:
                     generation=gen,
                     stage="COMPLETED",
                     status="SUCCEEDED",
-                    summary="Execution verification PASSED",
+                    summary="Execution verification PASSED: investigation and visit resolved.",
                 )
         else:
-            # SEMANTICS.md:77-78: Every terminal semantic outcome gets a report
             outcome_val = Outcome(aggregate_result.value)
             report = Report(
                 id=report_id,
@@ -454,26 +533,44 @@ class VerificationService:
                 outcome=outcome_val,
                 summary=f"Execution verification {aggregate_result.value}: policy rules not fully satisfied.",
                 checks=checks,
-                evidence_ids=valid_evidence_ids,
+                evidence_ids=grounded_ev_ids,
                 policy_version_id=inv.policy_version_id,
             )
-            await self.visit_port.save_report(workspace_id, report)
 
-            # Investigation returns to NEEDS_WORK
-            inv.state = State.NEEDS_WORK
-            inv.latest_verification_id = verification.id
-            inv.version += 1
-            inv.updated_at = now
-            await self.visit_port.update_investigation(workspace_id, inv)
+            try:
+                # Step 1: Save Report
+                await self.visit_port.save_report(workspace_id, report)
 
-            # Visit stays OPEN, actions remain unverified
-            verification.result = aggregate_result
-            verification.checks = checks
-            verification.requested_retakes = requested_retakes
-            verification.report_id = report_id
-            verification.version += 1
-            verification.updated_at = now
-            await self.verification_repo.update_verification(workspace_id, verification)
+                # Step 2: Investigation returns to NEEDS_WORK
+                inv.state = State.NEEDS_WORK
+                inv.latest_verification_id = verification.id
+                inv.version += 1
+                inv.updated_at = now
+                await self.visit_port.update_investigation(workspace_id, inv)
+
+                # Step 3: Update Verification
+                verification.result = aggregate_result
+                verification.checks = checks
+                verification.requested_retakes = requested_retakes
+                verification.report_id = report_id
+                verification.version += 1
+                verification.updated_at = now
+                await self.verification_repo.update_verification(workspace_id, verification)
+            except Exception as cascade_err:
+                logger.error(
+                    f"Non-PASS resolution cascade failed, executing compensating rollback: {cascade_err}"
+                )
+                try:
+                    inv.state = orig_inv_state
+                    inv.version = orig_inv_version + 1
+                    inv.latest_verification_id = orig_inv_latest_ver
+                    inv.updated_at = self.clock.now_utc()
+                    await self.visit_port.update_investigation(workspace_id, inv)
+                except Exception as rollback_err:  # noqa: BLE001
+                    logger.critical(
+                        f"Compensating rollback failed: {rollback_err}"
+                    )
+                raise
 
             if gen is not None:
                 await self.state_repo.update_job_stage(

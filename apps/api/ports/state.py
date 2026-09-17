@@ -1,6 +1,5 @@
 from typing import Any, Protocol
 from uuid import UUID
-
 from storeops_contracts.models import Job, JobEvent, Membership, Workspace
 
 

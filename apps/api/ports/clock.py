@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Protocol
 
 
@@ -10,4 +10,4 @@ class Clock(Protocol):
 
 class SystemClock:
     def now_utc(self) -> datetime:
-        return datetime.now(UTC)
+        return datetime.now(timezone.utc)

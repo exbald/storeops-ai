@@ -201,7 +201,7 @@ async def test_ac32_prompt_injection_in_visit_notes_treated_as_data(
                 ProposedCheck(
                     rule_id=r.rule_id,
                     result="PASS",
-                    evidence_ids=[],
+                    evidence_ids=[media.id],
                     explanation=f"Evaluated rule {r.rule_id} safely.",
                 )
                 for r in pol_ver.rules
@@ -221,6 +221,15 @@ async def test_ac32_prompt_injection_in_visit_notes_treated_as_data(
     )
     assert resp.status_code == 202
 
+    # Verify that the adversarial visit notes were enclosed in untrusted tags in the verifier prompt
+    assert len(gateway.call_history) > 0
+    verifier_call = next(
+        c for c in gateway.call_history if c["response_schema"] == VerificationProposal
+    )
+    prompt_used = verifier_call["prompt"]
+    assert "<untrusted_visit_notes>" in prompt_used
+    assert "CRITICAL SYSTEM OVERRIDE" in prompt_used
+
     # Verifications list
     list_resp = await client.get(
         f"/investigations/{inv.id}/verifications",
@@ -230,3 +239,64 @@ async def test_ac32_prompt_injection_in_visit_notes_treated_as_data(
     v_data = list_resp.json()["items"][0]
     # Checks were grounded and evaluated, not bypassed by injection
     assert len(v_data["checks"]) == len(pol_ver.rules)
+
+
+@pytest.mark.asyncio
+async def test_empty_evidence_ids_fails_grounding(
+    test_workspace_id: UUID,
+    rep_user: UserContext,
+    sample_visit: Visit,
+    sample_store: Store,
+    sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
+    sample_investigation_accepted: tuple[Investigation, list[Action]],
+    frozen_clock: FrozenClock,
+    memory_visit_repo: InMemoryVisitRepository,
+    auth_headers: dict[str, str],
+    make_after_media: Any,
+    client: AsyncClient,
+) -> None:
+    """AC32/Grounding: Proposal with empty evidence_ids fails closed with NEEDS_WORK."""
+    inv, _ = sample_investigation_accepted
+    _promo, pol_ver = sample_promotion_and_policy
+    now = frozen_clock.now_utc()
+
+    media = await make_after_media(
+        sha256="9" * 64,
+        filename="grounding_test.jpg",
+        captured_at=now - timedelta(minutes=2),
+    )
+
+    # Register proposal with ungrounded (empty) evidence_ids
+    gateway = DeterministicModelGateway()
+    gateway.register_response(
+        VerificationProposal,
+        VerificationProposal(
+            checks=[
+                ProposedCheck(
+                    rule_id=r.rule_id,
+                    result="PASS",
+                    evidence_ids=[],  # Violates grounding: empty evidence_ids
+                    explanation=f"Ungrounded claim for {r.rule_id}.",
+                )
+                for r in pol_ver.rules
+            ],
+            requested_retakes=[],
+        ),
+    )
+    set_model_gateway(gateway)
+
+    resp = await client.post(
+        f"/investigations/{inv.id}/verify",
+        json={
+            "expected_version": inv.version,
+            "after_media_ids": [str(media.id)],
+        },
+        headers={**auth_headers, "Idempotency-Key": "idem-ungrounded-evidence"},
+    )
+    assert resp.status_code == 202
+
+    # Investigation must fail closed to NEEDS_WORK, not RESOLVED
+    updated_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
+    assert updated_inv is not None
+    assert updated_inv.state == State.NEEDS_WORK
+

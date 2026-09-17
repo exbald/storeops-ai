@@ -148,3 +148,81 @@ async def test_ac20_unsupported_state_returns_409(
     )
     assert resp.status_code == 409
     assert resp.json()["code"] == "INVALID_STATE"
+
+
+@pytest.mark.asyncio
+async def test_saga_compensation_on_visit_update_failure(
+    test_workspace_id: UUID,
+    rep_user: UserContext,
+    sample_visit: Visit,
+    sample_store: Store,
+    sample_promotion_and_policy: tuple[Promotion, PolicyVersion],
+    sample_investigation_accepted: tuple[Investigation, list[Action]],
+    frozen_clock: FrozenClock,
+    memory_visit_repo: InMemoryVisitRepository,
+    auth_headers: dict[str, str],
+    make_after_media: Any,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC20/Saga: If visit update fails during atomic PASS resolution, compensation rolls back investigation."""
+    from apps.api.ai.gateway import DeterministicModelGateway
+    from apps.api.ai.schemas import ProposedCheck, VerificationProposal
+    from apps.api.modules.verification.dependencies import set_model_gateway
+
+    inv, _actions = sample_investigation_accepted
+    _promo, pol_ver = sample_promotion_and_policy
+    now = frozen_clock.now_utc()
+
+    media = await make_after_media(
+        sha256="e" * 64,
+        filename="me.jpg",
+        captured_at=now - timedelta(minutes=2),
+    )
+
+    gateway = DeterministicModelGateway()
+    gateway.register_response(
+        VerificationProposal,
+        VerificationProposal(
+            checks=[
+                ProposedCheck(
+                    rule_id=r.rule_id,
+                    result="PASS",
+                    evidence_ids=[media.id],
+                    explanation=f"Compliant {r.rule_id}",
+                )
+                for r in pol_ver.rules
+            ],
+            requested_retakes=[],
+        ),
+    )
+    set_model_gateway(gateway)
+
+    call_count = 0
+    orig_update_visit = memory_visit_repo.update_visit
+
+    async def fail_first_update_visit(workspace_id: UUID, visit: Visit) -> Visit:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Simulated DB connection timeout on visit update")
+        return await orig_update_visit(workspace_id, visit)
+
+    monkeypatch.setattr(memory_visit_repo, "update_visit", fail_first_update_visit)
+
+    resp = await client.post(
+        f"/investigations/{inv.id}/verify",
+        json={
+            "expected_version": inv.version,
+            "after_media_ids": [str(media.id)],
+        },
+        headers={**auth_headers, "Idempotency-Key": "idem-saga-fail"},
+    )
+    assert resp.status_code == 202
+
+    # After saga rollback compensation, investigation state must NOT be RESOLVED
+    persisted_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
+    assert persisted_inv is not None
+    assert persisted_inv.state in (State.ACCEPTED, State.NEEDS_WORK)
+    assert persisted_inv.state != State.RESOLVED
+

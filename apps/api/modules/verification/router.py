@@ -1,5 +1,4 @@
-"""FastAPI router for verification endpoints."""
-
+import asyncio
 import hashlib
 from typing import Annotated
 from uuid import UUID
@@ -17,12 +16,16 @@ from apps.api.core.auth import (
     get_state_repository,
     require_workspace,
 )
+from apps.api.core.errors import ApiError
 from apps.api.modules.verification.dependencies import get_verification_service
 from apps.api.modules.verification.service import VerificationService
 from apps.api.ports.state import StateRepository
 
 router = APIRouter()
 require_rep = require_workspace(required_role="REP")
+
+_inflight_keys: set[str] = set()
+_inflight_lock = asyncio.Lock()
 
 
 @router.post(
@@ -39,33 +42,40 @@ async def verify_investigation(
     service: Annotated[VerificationService, Depends(get_verification_service)],
     state_repo: Annotated[StateRepository, Depends(get_state_repository)],
     request: Request,
-    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> Job:
     """Submit after-action evidence to verify remediation against frozen policy rules."""
-    if idempotency_key:
-        raw_body = await request.body()
-        body_hash = hashlib.sha256(raw_body).hexdigest()
-        is_cached, cached_data = await state_repo.check_idempotency(
-            uid=ctx.user.uid,
-            method="POST",
-            route=f"/investigations/{investigation_id}/verify",
-            key=idempotency_key,
-            body_hash=body_hash,
-        )
-        if is_cached and cached_data:
-            cached_body = cached_data.get("body", cached_data)
-            return Job.model_validate(cached_body)
-
-    job = await service.verify_investigation(
-        workspace_id=ctx.workspace_id,
-        investigation_id=investigation_id,
-        payload=payload,
+    raw_body = await request.body()
+    body_hash = hashlib.sha256(raw_body).hexdigest()
+    is_cached, cached_data = await state_repo.check_idempotency(
         uid=ctx.user.uid,
+        method="POST",
+        route=f"/investigations/{investigation_id}/verify",
+        key=idempotency_key,
+        body_hash=body_hash,
     )
+    if is_cached and cached_data:
+        cached_body = cached_data.get("body", cached_data)
+        return Job.model_validate(cached_body)
 
-    if idempotency_key:
-        raw_body = await request.body()
-        body_hash = hashlib.sha256(raw_body).hexdigest()
+    inflight_id = f"{ctx.user.uid}:POST:/investigations/{investigation_id}/verify:{idempotency_key}"
+    async with _inflight_lock:
+        if inflight_id in _inflight_keys:
+            raise ApiError(
+                status_code=409,
+                code="CONCURRENT_IDEMPOTENCY_REQUEST",
+                message="A request with this Idempotency-Key is already in flight",
+            )
+        _inflight_keys.add(inflight_id)
+
+    try:
+        job = await service.verify_investigation(
+            workspace_id=ctx.workspace_id,
+            investigation_id=investigation_id,
+            payload=payload,
+            uid=ctx.user.uid,
+        )
+
         await state_repo.save_idempotency(
             uid=ctx.user.uid,
             method="POST",
@@ -75,8 +85,10 @@ async def verify_investigation(
             status_code=202,
             response_body=job.model_dump(mode="json"),
         )
-
-    return job
+        return job
+    finally:
+        async with _inflight_lock:
+            _inflight_keys.discard(inflight_id)
 
 
 @router.get(
