@@ -60,11 +60,13 @@ Per `AGENTS.md` and `specs/07-delivery.md`:
 if not self.allow_prod:
     ds_lower = self.dataset_id.lower()
     proj_lower = self.project_id.lower()
-    if ("prod" in ds_lower or "prod" in proj_lower) and not (
-        "test" in ds_lower or "dev" in ds_lower or "disposable" in ds_lower
-    ):
+    if "prod" in proj_lower and not ("test" in proj_lower or "dev" in proj_lower or "disposable" in proj_lower):
         raise ValueError(
-            f"Refusing to target production-like dataset '{self.dataset_id}' in project '{self.project_id}' without allow_prod=True"
+            f"Refusing to target production-like project '{self.project_id}' without allow_prod=True"
+        )
+    if "prod" in ds_lower and not ("test" in ds_lower or "dev" in ds_lower or "disposable" in ds_lower):
+        raise ValueError(
+            f"Refusing to target production-like dataset '{self.dataset_id}' without allow_prod=True"
         )
 ```
 Any attempt to point tests or scripts at a production-looking dataset raises `ValueError` immediately.

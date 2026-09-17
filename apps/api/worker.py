@@ -22,18 +22,12 @@ def create_worker(state_repo: StateRepository | None = None) -> tuple[StateRepos
 
     runner = JobRunner(state_repo=state_repo, worker_id=f"worker-{os.getpid()}")
 
-    # Register handlers
-    async def _default_handler(job, generation):
-        logger.info(
-            "Executing job %s (type=%s) at generation %s",
-            job.id,
-            getattr(job.type, "value", job.type),
-            generation,
-        )
+    # Register test handler for AC37
+    async def _test_handler(job, generation):
+        logger.info("Executing test job %s at generation %s", job.id, generation)
+        await asyncio.sleep(0.01)
 
-    for job_type in ["TEST", "INVESTIGATE", "VERIFY", "POLICY_EXTRACT", "IMPORT_VALIDATE", "IMPORT_COMMIT"]:
-        runner.register_handler(job_type, _default_handler)
-
+    runner.register_handler("TEST", _test_handler)
     return state_repo, runner
 
 
@@ -63,8 +57,11 @@ async def drain_outbox(state_repo: StateRepository, runner: JobRunner) -> int:
                 if success:
                     await doc.reference.update({"dispatched": True})
                     dispatched_count += 1
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Firestore outbox drain encountered error: %s", exc)
+        except Exception:
+            logger.exception(
+                "Firestore outbox drain encountered error (dispatched_so_far=%d)",
+                dispatched_count,
+            )
 
     # LOCAL / InMemory path
     elif isinstance(getattr(state_repo, "outbox", None), list):

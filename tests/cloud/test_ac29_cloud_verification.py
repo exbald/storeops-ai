@@ -54,6 +54,12 @@ async def test_ac29_outbox_recovery_and_restart():
     state_repo = InMemoryStateRepository()
     _, runner = create_worker(state_repo=state_repo)
 
+    # Register test handler scoped to this test
+    async def _test_investigate(j, g):
+        pass
+
+    runner.register_handler(Type2.INVESTIGATE.value, _test_investigate)
+
     workspace_id = uuid4()
     job_id = uuid4()
     now = datetime.now(UTC)
