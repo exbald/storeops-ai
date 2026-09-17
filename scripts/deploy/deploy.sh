@@ -143,15 +143,24 @@ fi
 
 if [ -f "${BQ_DDL_FILE}" ]; then
     echo "Applying BigQuery schema DDL statement-by-statement from ${BQ_DDL_FILE}..."
-    python3 -c "
-import subprocess
-with open('${BQ_DDL_FILE}', 'r', encoding='utf-8') as f:
+    PROJECT_ID="${PROJECT_ID}" BQ_DATASET="${BQ_DATASET}" BQ_DDL_FILE="${BQ_DDL_FILE}" python3 -c "
+import os, subprocess
+project_id = os.environ['PROJECT_ID']
+dataset_id = os.environ['BQ_DATASET']
+ddl_file = os.environ['BQ_DDL_FILE']
+
+with open(ddl_file, 'r', encoding='utf-8') as f:
     sql = f.read()
-statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+
+# Filter full-line comments so statement blocks are not filtered out
+cleaned_lines = [l for l in sql.splitlines() if not l.strip().startswith('--')]
+cleaned_sql = '\n'.join(cleaned_lines)
+statements = [s.strip() for s in cleaned_sql.split(';') if s.strip()]
+
 for stmt in statements:
-    first_line = [l.strip() for l in stmt.splitlines() if l.strip() and not l.strip().startswith('--')][0]
+    first_line = stmt.splitlines()[0].strip()
     print(f'Executing DDL: {first_line}...')
-    cmd = ['bq', 'query', '--use_legacy_sql=false', f'--dataset_id=${BQ_DATASET}', f'--project_id=${PROJECT_ID}', stmt]
+    cmd = ['bq', 'query', '--use_legacy_sql=false', f'--dataset_id={dataset_id}', f'--project_id={project_id}', stmt]
     subprocess.run(cmd, check=True)
 "
 fi
@@ -163,7 +172,9 @@ if [ -f "${ROOT_DIR}/infra/firestore.indexes.json" ]; then
     if command -v firebase &>/dev/null; then
         firebase deploy --only firestore:indexes --project="${PROJECT_ID}"
     else
-        echo "Notice: firebase CLI not found in PATH. To apply composite indexes, run: firebase deploy --only firestore:indexes --project=${PROJECT_ID}"
+        echo -e "${YELLOW}WARNING: firebase CLI not found in PATH.${NC}"
+        echo -e "${YELLOW}Composite indexes from infra/firestore.indexes.json must be deployed manually:${NC}"
+        echo -e "${YELLOW}  firebase deploy --only firestore:indexes --project=${PROJECT_ID}${NC}"
     fi
 fi
 

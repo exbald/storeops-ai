@@ -1,5 +1,4 @@
--- BigQuery Analytics Tables for StoreOps Cloud Profile
--- Corresponds to canonical analytics schema defined in migrations/bigquery/001_initial_analytics.sql
+-- BigQuery analytics migration 001: Initial schema for StoreOps commercial analytics
 
 -- 1. Import Batches manifest table
 CREATE TABLE IF NOT EXISTS import_batches (
@@ -12,10 +11,7 @@ CREATE TABLE IF NOT EXISTS import_batches (
     committed_at TIMESTAMP NOT NULL
 )
 PARTITION BY DATE(committed_at)
-CLUSTER BY workspace_id, batch_id
-OPTIONS (
-    description = "Committed import batch metadata for auditability and deduplication"
-);
+CLUSTER BY workspace_id, batch_id;
 
 -- 2. Sales Facts table
 CREATE TABLE IF NOT EXISTS sales_facts (
@@ -29,10 +25,7 @@ CREATE TABLE IF NOT EXISTS sales_facts (
     currency STRING NOT NULL
 )
 PARTITION BY business_date
-CLUSTER BY workspace_id, store_id, sku
-OPTIONS (
-    description = "Partitioned daily sales facts committed from sales CSV imports"
-);
+CLUSTER BY workspace_id, store_id, sku;
 
 -- 3. Inventory Facts table
 CREATE TABLE IF NOT EXISTS inventory_facts (
@@ -46,7 +39,4 @@ CREATE TABLE IF NOT EXISTS inventory_facts (
     normalized_units INT64 NOT NULL
 )
 PARTITION BY DATE(observed_at)
-CLUSTER BY workspace_id, location_id, sku
-OPTIONS (
-    description = "Partitioned inventory facts committed from inventory CSV imports"
-);
+CLUSTER BY workspace_id, location_id, sku;
