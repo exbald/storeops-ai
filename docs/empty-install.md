@@ -43,10 +43,19 @@ Expected output:
 {
   "status": "passed",
   "kind": "specification_integrity_only",
+  "application_tests": "not_run",
   "full_openapi_meta_validation": "passed",
   "requirements": 15,
   "tasks": 15,
-  "acceptance_cases": 41
+  "acceptance_cases": 41,
+  "api_operations": 49,
+  "api_schemas": 69,
+  "ai_definitions": 10,
+  "schema_refs_checked": 598,
+  "schema_examples_checked": 13,
+  "typed_tool_contracts": 7,
+  "tool_schema_refs_checked": 15,
+  "local_links_checked": 67
 }
 ```
 
@@ -54,134 +63,154 @@ Expected output:
 
 ## 3. Environment Profiles & Configuration
 
-StoreOps provides two isolated execution profiles per `specs/01-architecture.md`:
+StoreOps provides two isolated execution profiles per `specs/01-architecture.md` and `apps/api/core/config.py`:
 1. **`LOCAL` profile**: In-memory state, local DuckDB analytics, local filesystem media storage, and deterministic model gateways. Zero external network access or GCP credentials required.
 2. **`CLOUD` profile**: Google Cloud Firestore, BigQuery, Google Cloud Storage, Cloud Tasks, Cloud Run, and live Google Gemini API (`gemini-2.5-pro` and `gemini-2.5-flash`).
 
 ### Local Mode Configuration
-Copy the default environment configuration:
+Copy the default environment configuration template from `.env.example`:
 ```bash
 cp .env.example .env
 ```
-Ensure the following settings are present in `.env`:
+Ensure the following settings are present in `.env` (matching `apps/api/core/config.py` and `.env.example`):
 ```ini
-STOREOPS_PROFILE=LOCAL
+APP_ENV=development
+PROFILE=LOCAL
 AI_MODE=STUB
 PORT=8000
-WEB_PORT=3000
-LOG_LEVEL=INFO
-LOCAL_STORAGE_DIR=.local_storage/media
-DUCKDB_PATH=:memory:
+MEDIA_STORAGE_DIR=.local_storage/media
+STATE_BACKEND=in_memory
+FIREBASE_PROJECT_ID=storeops-dev
 ```
 
 ### Anti-Fabrication Rule (AC26)
-Per `specs/06-quality.md`, if `STOREOPS_PROFILE=CLOUD` is specified, the application will refuse to start if any stub, emulator, or in-memory adapter is configured. Local mode is always explicitly labeled.
+Per `specs/06-quality.md`, if `PROFILE=CLOUD` is specified, the application will refuse to start if any stub, emulator, or in-memory adapter is configured (`AI_MODE=STUB` or `STATE_BACKEND=in_memory`). Local mode is always explicitly labeled.
 
 ---
 
 ## 4. Database Migration & Tenant Initialization
 
 ### Step 1: Run Migrations (`make migrate`)
-Apply versioned schema migrations:
+Confirm database migration readiness:
 ```bash
 make migrate
 ```
-In `LOCAL` mode, this initializes the DuckDB analytics schema, memory state structures, and filesystem directories.
+In `LOCAL` mode, `make migrate` verifies the existence of the `migrations/` directory and confirms readiness. DuckDB tables and analytical views are initialized dynamically on first access, while in-memory state structures require no upfront DDL. In `CLOUD` mode, this target applies versioned migrations to BigQuery and Firestore indexes.
 
-### Step 2: Bootstrap an Empty Workspace (`make bootstrap-admin`)
-Provision a brand-new workspace for an administrative user:
+### Step 2: Bootstrap an Empty Workspace
+Provision an empty workspace with an initial administrative user using `scripts/bootstrap.py`:
 ```bash
-make bootstrap-admin \
-  NAME="Acme Retail West" \
-  BRAND="Acme Beverages" \
-  CURRENCY="USD" \
-  UID="admin-usr-001" \
-  EMAIL="admin@acmeretail.com"
+uv run python3 scripts/bootstrap.py \
+  --workspace-name="Acme Retail West" \
+  --brand-name="Acme Beverages" \
+  --currency="USD" \
+  --admin-uid="admin-usr-001" \
+  --email="admin@acmeretail.com"
 ```
-The command outputs the new workspace details:
-```json
-{
-  "workspace_id": "8f3b2049-7104-4ec2-881b-59d0458b0932",
-  "name": "Acme Retail West",
-  "brand": "Acme Beverages",
-  "currency": "USD",
-  "admin_uid": "admin-usr-001"
-}
+The command outputs:
+```
+Successfully bootstrapped workspace 'Acme Retail West' (<WORKSPACE_UUID>) with admin 'admin-usr-001'.
+Currency: USD, Brand: Acme Beverages
 ```
 
-### Step 3: Add a Field Representative Member (`make add-member`)
-Add a field sales representative to the workspace:
+*(Note on `STATE_BACKEND`: In `LOCAL` mode with `STATE_BACKEND=in_memory`, state resides in process memory. In `CLOUD` mode or when using `STATE_BACKEND=firestore`, state persists across CLI invocations. For multi-step CLI operations against Firestore, or when running the HTTP server, operations can also be executed directly via the REST API).*
+
+### Step 3: Add a Member (Optional CLI)
+To provision an additional user in a persistent Firestore backend:
 ```bash
-make add-member \
-  WORKSPACE_ID="8f3b2049-7104-4ec2-881b-59d0458b0932" \
-  UID="rep-usr-101" \
-  ROLE="REP" \
-  EMAIL="rep101@acmeretail.com"
+uv run python3 scripts/bootstrap.py \
+  --add-member \
+  --workspace-id="<WORKSPACE_UUID>" \
+  --uid="rep-usr-101" \
+  --role="REP" \
+  --email="rep101@acmeretail.com"
+```
+The command outputs:
+```
+Successfully added user 'rep-usr-101' with role 'REP' to workspace '<WORKSPACE_UUID>'.
 ```
 
 ---
 
-## 5. Starting the Application Services (`make dev`)
+## 5. Starting Application Services
 
-Launch the local development environment:
+StoreOps separates the HTTP API, background asynchronous workers, and the web frontend:
+
+### 1. API Server (`make dev`)
+Start the FastAPI server:
 ```bash
 make dev
 ```
-This starts:
-- **FastAPI Backend Server**: Running on `http://127.0.0.1:8000` (API documentation at `/docs` and OpenAPI JSON at `/openapi.json`).
-- **Background Worker**: Processing asynchronous jobs (imports, investigations, verifications) via generation-fenced leases and transactional outbox.
-- **Next.js Web Management Console**: Running on `http://127.0.0.1:3000`.
+*(Executes `uv run uvicorn apps.api.main:app --reload --port 8000`). The OpenAPI documentation is available at `http://127.0.0.1:8000/docs` and OpenAPI schema at `/openapi.json`.*
+
+### 2. Background Worker
+In a separate terminal, start the asynchronous background worker to process imports, investigations, and verification jobs:
+```bash
+uv run python3 apps/api/worker.py
+```
+
+### 3. Web Management Console
+In a separate terminal, launch the Next.js development server:
+```bash
+pnpm --filter web dev
+```
+The web dashboard is available at `http://127.0.0.1:3000`.
 
 ---
 
 ## 6. Verifying the Clean Empty State (AC01 & AC23)
 
-Before populating any records, verify that the application returns clean empty states rather than errors or sample data:
+Before populating any records, verify that the application returns clean empty envelopes (`{"items": []}`) rather than fake seed records:
 
 ```bash
-# Check stores (returns empty array)
+# Check stores (returns empty envelope {"items": []})
 curl -s -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
-     http://127.0.0.1:8000/stores | jq .
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
+     http://127.0.0.1:8000/stores | jq .items
+# Output: []
 
-# Check products (returns empty array)
+# Check products (returns empty envelope {"items": []})
 curl -s -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
-     http://127.0.0.1:8000/products | jq .
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
+     http://127.0.0.1:8000/products | jq .items
+# Output: []
 
-# Check promotions (returns empty array)
+# Check promotions (returns empty envelope {"items": []})
 curl -s -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
-     http://127.0.0.1:8000/promotions | jq .
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
+     http://127.0.0.1:8000/promotions | jq .items
+# Output: []
 
-# Check visits (returns empty array)
+# Check visits (returns empty envelope {"items": []})
 curl -s -H "Authorization: Bearer rep-usr-101" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
-     http://127.0.0.1:8000/visits | jq .
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
+     http://127.0.0.1:8000/visits | jq .items
+# Output: []
 ```
-In the Web UI (`http://127.0.0.1:3000`), navigate to the dashboard. The UI explicitly renders:
-- "No stores configured yet"
-- "No sales data"
-- "Stock unknown"
-- "No active promotions"
+
+In the Web UI (`http://127.0.0.1:3000`), navigating to the dashboard renders honest empty state strings:
+- *"No sales data"* (for empty revenue/sales metrics)
+- *"Stock unknown"* (for inventory availability)
+- *"Insufficient comparison data"* (for opportunity projections)
+- *"No active promotions"*
 
 ---
 
 ## 7. Standard Ingestion CSV Specifications & Templates
 
-StoreOps ingests daily point-of-sale transactions and distribution inventory via standard CSV files conforming to `contracts/imports.json`.
+StoreOps ingests daily point-of-sale transactions and distribution inventory via standard CSV files strictly conforming to `contracts/imports.json`.
 
 ### A. Sales CSV Specification (`SALES`)
 - **Header Line**: `store_code,sku,business_date,units,revenue,currency`
 - **Validation Rules**:
-  - `store_code`: String matching a registered store code in the workspace.
-  - `sku`: String matching an active product SKU.
-  - `business_date`: ISO-8601 date (`YYYY-MM-DD`). Cannot be more than 1 day in the future.
-  - `units`: Integer ≥ 0.
-  - `revenue`: Decimal number ≥ 0.00 (two decimal places).
-  - `currency`: 3-letter ISO code matching workspace currency (`USD`, `SGD`, `AUD`, `EUR`, `GBP`).
+  - `store_code`: String (`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`) matching an active store code in the workspace.
+  - `sku`: String (`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`) matching an active product SKU in the workspace.
+  - `business_date`: ISO-8601 date (`YYYY-MM-DD`). Future business dates are **invalid** (`imports.json:59`).
+  - `units`: Integer ≥ 0. Explicit zero rows establish zero sales.
+  - `revenue`: Decimal string with exactly two fractional digits (e.g., `96.00`). Pattern: `^\d+\.\d{2}$`.
+  - `currency`: 3-letter ISO code strictly matching workspace currency. Allowed enum: `["SGD", "USD", "AUD"]`.
 
-#### `sales_template.csv` Example:
+#### Valid `sales_template.csv`:
 ```csv
 store_code,sku,business_date,units,revenue,currency
 STR-001,SKU-WAT-01,2026-09-14,48,96.00,USD
@@ -192,17 +221,17 @@ STR-002,SKU-WAT-01,2026-09-15,24,48.00,USD
 ### B. Inventory CSV Specification (`INVENTORY`)
 - **Header Line**: `location_code,sku,observed_at,quantity,unit`
 - **Validation Rules**:
-  - `location_code`: String matching either a distributor location code (`LOC-...`) or store backroom (`<STORE_CODE>-BACKROOM`).
+  - `location_code`: String (`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`) matching a distributor location code or store backroom (`<STORE_CODE>-BACKROOM`).
   - `sku`: String matching an active product SKU.
-  - `observed_at`: ISO-8601 timestamp in UTC (`YYYY-MM-DDTHH:MM:SSZ`).
+  - `observed_at`: ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`). Future timestamps beyond a 5-minute clock tolerance are **invalid** (`imports.json:104`).
   - `quantity`: Integer ≥ 0.
-  - `unit`: String (`CASES` or `UNITS`).
+  - `unit`: String enum strictly matching `["UNIT", "CASE"]` (singular).
 
-#### `inventory_template.csv` Example:
+#### Valid `inventory_template.csv`:
 ```csv
 location_code,sku,observed_at,quantity,unit
-LOC-DIST-WEST,SKU-WAT-01,2026-09-15T08:00:00Z,250,CASES
-STR-001-BACKROOM,SKU-WAT-01,2026-09-15T08:30:00Z,12,CASES
+LOC-DIST-WEST,SKU-WAT-01,2026-09-15T08:00:00Z,250,CASE
+STR-001-BACKROOM,SKU-WAT-01,2026-09-15T08:30:00Z,12,UNIT
 ```
 
 ---
@@ -216,7 +245,7 @@ Follow these steps to exercise the complete business loop in a fresh workspace w
    ```bash
    curl -X POST http://127.0.0.1:8000/locations \
      -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
      -H "Idempotency-Key: loc-dist-west-01" \
      -H "Content-Type: application/json" \
      -d '{
@@ -229,7 +258,7 @@ Follow these steps to exercise the complete business loop in a fresh workspace w
    ```bash
    curl -X POST http://127.0.0.1:8000/stores \
      -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
      -H "Idempotency-Key: store-str-001" \
      -H "Content-Type: application/json" \
      -d '{
@@ -246,7 +275,7 @@ Follow these steps to exercise the complete business loop in a fresh workspace w
    ```bash
    curl -X POST http://127.0.0.1:8000/products \
      -H "Authorization: Bearer admin-usr-001" \
-     -H "X-Workspace-Id: 8f3b2049-7104-4ec2-881b-59d0458b0932" \
+     -H "X-Workspace-Id: <WORKSPACE_UUID>" \
      -H "Idempotency-Key: prod-wat-01" \
      -H "Content-Type: application/json" \
      -d '{
@@ -268,7 +297,7 @@ Follow these steps to exercise the complete business loop in a fresh workspace w
 2. Approve promotional agreement rules via `POST /promotions/{promo_id}/approve` specifying:
    - `expected_version: 1`
    - `catalog_product_ids: ["<PRODUCT_ID>"]`
-   - `rules: [{"kind": "MIN_FACINGS", "min_facings": 3, "zone_id": "shelf-beverage", "product_id": "<PRODUCT_ID>"}]`
+   - `rules: [{"rule_id": "<RULE_UUID>", "kind": "MIN_FACINGS", "min_facings": 3, "zone_id": "shelf-beverage", "zone_kind": "SHELF", "product_id": "<PRODUCT_ID>", "source": {"kind": "MANUAL", "reviewer_note": "Mandatory 3 facings agreement"}}]`
 
 ### Step 4: Conduct Rep Field Visit & Trigger Investigation (REP)
 1. Rep starts store visit: `POST /visits` with `store_id: "<STORE_ID>"`.
@@ -278,7 +307,7 @@ Follow these steps to exercise the complete business loop in a fresh workspace w
 
 ### Step 5: Execute & Verify Merchandising (REP)
 1. Rep accepts plan: `POST /investigations/{id}/accept`.
-2. Rep restsocks shelf and marks action: `PATCH /investigations/{id}/actions/{action_id}` with `status: "CLAIMED_DONE"`.
+2. Rep restocks shelf and marks action: `PATCH /investigations/{id}/actions/{action_id}` with `status: "CLAIMED_DONE"`.
 3. Rep uploads after-image: `POST /media` with `kind: "VISIT_AFTER"`, PUT image bytes, and complete.
 4. Rep triggers verification: `POST /investigations/{id}/verify` with `after_media_ids: ["<AFTER_MEDIA_ID>"]`.
 5. Multimodal verifier assesses after-photo against policy rules:

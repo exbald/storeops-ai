@@ -1,7 +1,7 @@
 # StoreOps MVP Release & Acceptance Report
 
 **Release**: StoreOps Autonomous Retail Operations Intelligence MVP (v1.0.0-rc1)  
-**Date**: 2026-09-18  
+**Date**: 2026-09-17  
 **Scope**: Full end-to-end implementation across Waves 0 through 7 (Tasks T00 to T14)  
 **Coordinator**: StoreOps Autonomous Implementation Agent  
 
@@ -21,19 +21,19 @@ Per `specs/06-quality.md`, completion of the MVP requires evaluating six distinc
 
 | Gate | Description | Status | Evidence / Test Module |
 | :--- | :--- | :--- | :--- |
-| **`G0`** | **Contracts & Dependencies**<br>Frozen OpenAPI, AI schemas, tool contracts, pinned runtime dependencies. | **`PASSED`** | `make verify-spec` (0 drift), `docs/versions.md`, `tests/contract/test_ac25_contract_conformance.py` |
+| **`G0`** | **Contracts & Dependencies**<br>Frozen OpenAPI, AI schemas, tool contracts, pinned runtime dependencies. | **`PASSED`** | `make verify-spec` (0 drift), [versions.md](versions.md), `tests/contract/test_ac25_contract_conformance.py` |
 | **`G1`** | **Empty Authenticated App**<br>Workspace bootstrap, user RBAC (ADMIN/REP), zero pre-seeded records. | **`PASSED`** | `tests/foundation/test_ac01_bootstrap.py`, `tests/e2e/test_ac23_ac24_empty_and_complete.py` |
 | **`G2`** | **Ingestion & Policies**<br>CSV staging & atomic commit, OCC policy versioning, foreign key validation. | **`PASSED`** | `tests/data/test_ac06_staging_and_commit.py`, `tests/policies/test_ac10_concurrency.py`, `tests/web-management/` |
 | **`G3`** | **Grounded Investigation**<br>Autonomous AI synthesis fusing sales velocity, stock levels, and shelf photos. | **`PASSED`** | `tests/visits/test_ac12_investigations.py`, `tests/visits/test_ac13_missing_data.py`, `apps/api/ai/investigator/` |
 | **`G4`** | **Execution Verification**<br>Multimodal compliance checking, media eligibility fencing, atomic closure. | **`PASSED`** | `tests/verification/test_ac17_verification_pass.py`, `tests/verification/test_ac19_media_eligibility.py` |
 | **`G5`** | **Regressions & Parity**<br>Full local deterministic regressions, BigQuery analytical query parity. | **`PASSED`** | `tests/integration/test_*.py` (7 suites), `tests/cloud/test_ac27_bigquery_parity.py` |
-| **`G6`** | **Live Model & Cloud Deployment**<br>Deployment to live Google Cloud infrastructure and Gemini API evaluations. | **`BLOCKED`** | **Blocked on missing live credentials.** Per `AGENTS.md`, missing credentials produce a blocked gate, not a fake success (`docs/evaluation/live_model_evaluation.md`). |
+| **`G6`** | **Live Model & Cloud Deployment**<br>Deployment to live Google Cloud infrastructure and Gemini API evaluations. | **`BLOCKED`** | **Blocked on missing live credentials.** Per `AGENTS.md`, missing credentials produce a blocked gate, not a fake success ([docs/evaluation/live_model_evaluation.md](evaluation/live_model_evaluation.md)). |
 
 ---
 
 ## 3. Task Implementation Ledger (Waves 0 – 7)
 
-All 15 planned tasks have been integrated into `main` via sequential, review-gated GitHub Pull Requests:
+All 15 planned tasks across Waves 0 through 7 have been integrated into `main` (with T14 in final review for integration):
 
 | Wave | Task ID | Title | PR | Commit | Status | Owned Paths |
 | :---: | :---: | :--- | :---: | :---: | :---: | :--- |
@@ -48,10 +48,10 @@ All 15 planned tasks have been integrated into `main` via sequential, review-gat
 | **3** | **`T07`** | Persisted visits, investigations & evidence | [#9](https://github.com/exbald/storeops-ai/pull/9) | `d3db4cf` | `integrated` | `apps/api/modules/visits/`, `tests/visits/` |
 | **4** | **`T08`** | Full browser workflow & mobile rep UI | [#10](https://github.com/exbald/storeops-ai/pull/10) | `ae0b5ca` | `integrated` | `apps/web/`, `tests/e2e/` |
 | **4** | **`T09`** | Execution verifier & atomic resolution | [#11](https://github.com/exbald/storeops-ai/pull/11) | `6c10b78` | `integrated` | `apps/api/modules/verification/`, `tests/verification/` |
-| **5** | **`T10`** | Deterministic regression & failure hardening | [#12](https://github.com/exbald/storeops-ai/pull/12) | `4630a91` | `integrated` | `tests/integration/`, `docs/test-results.md` |
+| **5** | **`T10`** | Deterministic regression & failure hardening | [#12](https://github.com/exbald/storeops-ai/pull/12) | `4630a91` | `integrated` | `tests/integration/`, [test-results.md](test-results.md) |
 | **6** | **`T12`** | Cloud parity & live model holdout suite | [#13](https://github.com/exbald/storeops-ai/pull/13) | `b487d03` | `integrated` | `evals/`, `tests/cloud/`, `docs/evaluation/` |
 | **6** | **`T13`** | Optional independent demo seed & replay | [#14](https://github.com/exbald/storeops-ai/pull/14) | `5f920f6` | `integrated` | `fixtures/demo/`, `scripts/seed_demo/`, `tests/demo/` |
-| **7** | **`T14`** | Accept core MVP from empty install | [#15](https://github.com/exbald/storeops-ai/pull/15) | *(Active)* | `integrated` | `docs/release.md`, `docs/user-guide.md`, `docs/empty-install.md` |
+| **7** | **`T14`** | Accept core MVP from empty install | [#15](https://github.com/exbald/storeops-ai/pull/15) | `1e59d27` | `in_review` | `docs/release.md`, `docs/user-guide.md`, `docs/empty-install.md` |
 
 ---
 
@@ -94,8 +94,8 @@ All 15 planned tasks have been integrated into `main` via sequential, review-gat
 | **AC33** | Concurrent idempotency keys & model repair failure | Integration | `tests/verification/test_ac32_ac33_ac34_safety_stale.py` | `PASSED` |
 | **AC34** | Policy draft edit isolation & immutable history | Integration | `tests/policies/test_ac34_stale_policy.py` | `PASSED` |
 | **AC35** | Catalog product reference integrity constraint | Unit/Int | `tests/catalog/test_ac35_constraints.py` | `PASSED` |
-| **AC36** | Outbox transactional dispatch guarantee | Unit | `tests/foundation/test_ac37_foundation.py` | `PASSED` |
-| **AC37** | Process readiness health checks (`/health`) | Unit | `tests/foundation/test_health.py` | `PASSED` |
+| **AC36** | Canonical schemas & dependency pinning | Spec | `tools/verify_spec.py`, `tests/contract/` | `PASSED` |
+| **AC37** | Process foundation, repository state & outbox dispatch | Integration | `tests/foundation/test_ac37_foundation.py`, `test_health.py` | `PASSED` |
 | **AC38** | Next.js web management screens & responsive shell | Web | `tests/web-management/test_ac38_management_screens.py` | `PASSED` |
 | **AC39** | Gemini structured tool schemas & gateway routing | AI | `tests/ai/test_ac39_extraction.py`, `test_ac39_gateway.py` | `PASSED` |
 | **AC40** | Full browser workflow at desktop & 375px mobile | E2E | `tests/e2e/test_ac40_browser_workflow.py` | `PASSED` |
@@ -105,16 +105,19 @@ All 15 planned tasks have been integrated into `main` via sequential, review-gat
 
 ---
 
-## 5. Verification Command Evidence
+## 5. Verification Command Evidence & CI Tracking
+
+All local test suites and verification gates pass deterministically in CI:
+- **GitHub Actions CI Run**: [Run #35254405668](https://github.com/exbald/storeops-ai/actions/runs/35254405668)
 
 ```bash
 # 1. Specification & Contract Integrity Check
 make verify-spec
-# Result: PASSED (15 requirements, 15 tasks, 41 acceptance cases, 49 API operations, 0 drift)
+# Result: PASSED (15 requirements, 15 tasks, 41 acceptance cases, 49 API operations, 67 local links checked)
 
 # 2. Complete Backend Test Suite
 uv run pytest -W ignore
-# Result: 218 passed in 3.28s
+# Result: 218 passed in 3.25s
 
 # 3. Frontend TypeScript & Client Suite
 pnpm --filter web test
