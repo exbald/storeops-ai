@@ -172,9 +172,12 @@ if [ -f "${ROOT_DIR}/infra/firestore.indexes.json" ]; then
     if command -v firebase &>/dev/null; then
         firebase deploy --only firestore:indexes --project="${PROJECT_ID}"
     else
-        echo -e "${YELLOW}WARNING: firebase CLI not found in PATH.${NC}"
-        echo -e "${YELLOW}Composite indexes from infra/firestore.indexes.json must be deployed manually:${NC}"
-        echo -e "${YELLOW}  firebase deploy --only firestore:indexes --project=${PROJECT_ID}${NC}"
+        echo -e "${RED}ERROR: firebase CLI not found in PATH.${NC}"
+        echo -e "${RED}Composite indexes from infra/firestore.indexes.json are required.${NC}"
+        echo -e "Install firebase-tools or run with ALLOW_SKIP_INDEXES=1 to bypass."
+        if [ "${ALLOW_SKIP_INDEXES:-0}" != "1" ]; then
+            exit 1
+        fi
     fi
 fi
 
