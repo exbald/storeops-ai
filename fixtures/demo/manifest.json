@@ -1,0 +1,44 @@
+{
+  "demo_id": "storeops-retail-demo-2026",
+  "dated": "2026-09-15",
+  "description": "Standard independent retail operations intelligence demonstration dataset",
+  "workspace": {
+    "name": "Retail Demo Workspace",
+    "currency": "USD"
+  },
+  "distributor": {
+    "code": "LOC-DIST-01",
+    "name": "Regional Distribution Hub #1",
+    "type": "DISTRIBUTOR"
+  },
+  "store": {
+    "name": "Downtown Flagship #101",
+    "code": "STORE-101",
+    "retailer": "Retail Demo Corp",
+    "region": "North",
+    "format": "Supermarket",
+    "timezone": "America/New_York",
+    "zone_id": "ZONE-BEV-01",
+    "zone_kind": "SHELF"
+  },
+  "product": {
+    "name": "Sparkling Spring Water 500ml",
+    "sku": "BEV-WAT-001",
+    "case_units": 24
+  },
+  "imports": {
+    "sales_csv": "sales.csv",
+    "inventory_csv": "inventory.csv"
+  },
+  "policies": {
+    "promotion_title": "AquaPure Summer Endcap Placement Agreement",
+    "rule": {
+      "min_facings": 2,
+      "reviewer_note": "Demo merchandising facing rule"
+    }
+  },
+  "media": {
+    "shelf_before": "media/shelf_before.jpg",
+    "shelf_after": "media/shelf_after.jpg"
+  }
+}
