@@ -8,7 +8,7 @@ export interface SelectOption {
 }
 
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
-  label: string;
+  label?: string;
   options: SelectOption[];
   error?: string;
   helperText?: string;
@@ -32,10 +32,12 @@ export function Select({
 
   return (
     <div className="w-full flex flex-col gap-1 text-left">
-      <label htmlFor={selectId} className="block text-sm font-medium text-gray-700">
-        {label}
-        {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
-      </label>
+      {label && (
+        <label htmlFor={selectId} className="block text-sm font-medium text-gray-700">
+          {label}
+          {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
+        </label>
+      )}
       <select
         id={selectId}
         disabled={disabled}

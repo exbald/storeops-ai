@@ -3,7 +3,7 @@
 import React, { useId } from "react";
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label: string;
+  label?: string;
   error?: string;
   helperText?: string;
 }
@@ -25,10 +25,12 @@ export function Input({
 
   return (
     <div className="w-full flex flex-col gap-1 text-left">
-      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700">
-        {label}
-        {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
-      </label>
+      {label && (
+        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700">
+          {label}
+          {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
+        </label>
+      )}
       <input
         id={inputId}
         disabled={disabled}
