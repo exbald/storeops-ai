@@ -43,4 +43,5 @@ gen-lang-client*.json
 # Local database and test files
 *.duckdb
 *.duckdb.wal
+.local_storage/
 scratch/
