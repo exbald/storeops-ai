@@ -106,6 +106,25 @@ class DeterministicSalesStockBaseline:
                 "cited_ids": [ctx.get("sku", "")],
             }
 
+        # Check misplaced lookalike product
+        notes = ctx.get("notes", "").lower()
+        if "lookalike" in notes or "misplaced" in notes or "wrong" in notes:
+            return {
+                "diagnosis": "MISPLACED_PRODUCT",
+                "confidence": 0.90,
+                "recommended_actions": ["REMOVE_WRONG_SKU", "RESTOCK_TARGET_SKU"],
+                "cited_ids": [ctx.get("sku", "")],
+            }
+
+        # Check multi-SKU promotion co-location execution gap
+        if "paired_sku" in ctx or "co-locat" in notes:
+            return {
+                "diagnosis": "EXECUTION_GAP",
+                "confidence": 0.90,
+                "recommended_actions": ["CO_LOCATE_PROMOTIONAL_ITEMS", "STOCK_SHELF"],
+                "cited_ids": [cid for cid in [ctx.get("sku", ""), ctx.get("paired_sku", "")] if cid],
+            }
+
         # Core execution vs shortage vs healthy logic
         if facings == 0 and backroom_stock > 0:
             return {

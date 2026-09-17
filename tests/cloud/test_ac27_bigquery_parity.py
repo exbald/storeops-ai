@@ -27,7 +27,7 @@ async def test_ac27_disposable_dataset_guard():
     # Production names should fail initialization or commit if allow_prod is False
     with pytest.raises(ValueError, match="Refusing to target production-like dataset"):
         BigQueryAnalyticsRepository(
-            project_id="storeops-prod",
+            project_id="storeops-dev",
             dataset_id="storeops_production",
             allow_prod=False,
         )
@@ -36,6 +36,14 @@ async def test_ac27_disposable_dataset_guard():
         BigQueryAnalyticsRepository(
             project_id="storeops-12345",
             dataset_id="storeops_prod_analytics",
+            allow_prod=False,
+        )
+
+    # Rejects production project even with disposable dataset
+    with pytest.raises(ValueError, match="Refusing to target production-like project"):
+        BigQueryAnalyticsRepository(
+            project_id="storeops-prod-999",
+            dataset_id="disposable_test_analytics",
             allow_prod=False,
         )
 
@@ -83,8 +91,7 @@ async def test_ac27_sales_window_revision_parity(
         end_date="2026-09-15",
     )
 
-    # 1. Row count should be 3 (SKU-SNACK on 09-10, SKU-TEA on 09-10, SKU-TEA on 09-11 [corrected], SKU-TEA on 09-12)
-    # Wait: 4 logical dates/SKU combos:
+    # 1. 4 logical dates/SKU combos:
     # (09-10, SKU-SNACK), (09-10, SKU-TEA), (09-11, SKU-TEA), (09-12, SKU-TEA) = 4 total rows
     assert len(results) == 4
 
@@ -94,6 +101,7 @@ async def test_ac27_sales_window_revision_parity(
     )
     assert tea_0911["units"] == 12
     assert tea_0911["revenue"] == Decimal("30.00")
+    assert isinstance(tea_0911["revenue"], Decimal)
     assert tea_0911["batch_id"] == "BATCH-2026-09-02-B"
 
     # 3. Check uncorrected row: 2026-09-10 for SKU-TEA has units=10 from batch_1
@@ -249,6 +257,6 @@ async def test_ac27_inventory_as_of_parity(
         batch_ids=None,
     )
     assert "PARTITION BY i.workspace_id, i.location_id, i.sku" in sql
-    assert "ORDER BY i.observed_at DESC, b.committed_at DESC" in sql
+    assert "ORDER BY i.observed_at DESC, b.committed_at DESC, i.batch_id DESC" in sql
     assert "WHERE rn = 1" in sql
     assert params["as_of_time"] == "2026-09-10T18:00:00Z"

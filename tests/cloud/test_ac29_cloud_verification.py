@@ -48,8 +48,12 @@ def test_ac29_firestore_indexes_defined():
 
 @pytest.mark.asyncio
 async def test_ac29_outbox_recovery_and_restart():
-    """AC29: Worker recovery finds undispatched outbox items and processes them idempotently."""
+    """AC29: Worker recovery finds undispatched outbox items and processes them idempotently via drain_outbox."""
+    from apps.api.worker import create_worker, drain_outbox
+
     state_repo = InMemoryStateRepository()
+    _, runner = create_worker(state_repo=state_repo)
+
     workspace_id = uuid4()
     job_id = uuid4()
     now = datetime.now(UTC)
@@ -61,7 +65,7 @@ async def test_ac29_outbox_recovery_and_restart():
         version=1,
         created_at=now,
         updated_at=now,
-        type=Type2.INVESTIGATE,
+        type=Type2.TEST if hasattr(Type2, "TEST") else Type2.INVESTIGATE,
         status=JobStatus.QUEUED,
         resource_id=uuid4(),
         resource_type=ResourceType.INVESTIGATION,
@@ -83,12 +87,18 @@ async def test_ac29_outbox_recovery_and_restart():
     assert target_entry["dispatched"] is False
     assert target_entry["payload"]["correlation_id"] == "test-corr-123"
 
-    # 3. Worker recovers outbox item and marks dispatched
-    target_entry["dispatched"] = True
+    # 3. Worker recovers outbox item using the real drain_outbox worker function
+    dispatched_count = await drain_outbox(state_repo, runner)
+    assert dispatched_count == 1
+    assert target_entry["dispatched"] is True
 
     # 4. Verify outbox queue has no undispatched entries for this job
     pending = [e for e in state_repo.outbox if not e["dispatched"]]
     assert not any(e["job_id"] == job_id for e in pending)
+
+    # 5. Idempotent re-run on subsequent worker restart/loop dispatches 0 items
+    re_run_count = await drain_outbox(state_repo, runner)
+    assert re_run_count == 0
 
 
 def test_ac29_no_secrets_in_deployment_configs():

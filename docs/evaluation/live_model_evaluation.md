@@ -31,8 +31,8 @@ To ensure objective benchmarks against Gemini multimodal inference, two determin
 ### Baseline Comparison Summary
 | Metric | Deterministic Sales/Stock Baseline | Image-Only Baseline | Gemini Target (G6 Gate) |
 |---|---|---|---|
-| **Diagnostic Accuracy (Holdout)** | 90.0% (9/10) | 30.0% (3/10) | ≥ 90.0% (≥ 9/10 on 3 repeats) |
-| **Verification False Resolutions** | 0 (0/6 noncompliant passed) | 1 (1/6 false pass on occluded item) | 0 across all 3 repeats |
+| **Diagnostic Accuracy (Holdout)** | 100.0% (10/10) | 30.0% (3/10) | ≥ 90.0% (≥ 9/10 on 3 repeats) |
+| **Verification False Resolutions** | 0 (0/6 noncompliant passed) | 1 (1/6 false pass on V09 price tag mismatch) | 0 across all 3 repeats |
 | **Compliant Verification Recall** | 100% (2/2 compliant passed) | 100% (2/2 compliant passed) | 100% compliant passed |
 | **Factual Claim Grounding** | 100% cited valid IDs | N/A (no entity citations) | ≥ 95% claims supported & cited |
 | **Mean Evaluation Runtime** | < 0.01 s / scenario | < 0.01 s / scenario | p95 ≤ 60 s / investigation |

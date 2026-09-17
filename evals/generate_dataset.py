@@ -6,11 +6,23 @@ Complies with specs/06-quality.md:
 - 6 robustness cases (R01-R06)
 - 20 held-out cases frozen in evals/data/splits.json
 - Protected ground truth in evals/labels/ground_truth.json
+
+NOTE: The committed scenario files in evals/data/scenarios/*.json and evals/labels/ground_truth.json
+are frozen holdout benchmarks per specs/06-quality.md and must not be mutated. This script uses
+deterministic UUID5 generation based on scenario IDs to guarantee exact reproducibility.
 """
 
 import json
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
+
+SEED_NAMESPACE = UUID("a1100000-0000-0000-0000-000000000001")
+
+
+def deterministic_store_id(scenario_id: str) -> str:
+    """Generate deterministic store UUID for scenario reproducibility."""
+    return str(uuid5(SEED_NAMESPACE, f"storeops.eval.store.{scenario_id}"))
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SCENARIOS_DIR = ROOT_DIR / "evals" / "data" / "scenarios"

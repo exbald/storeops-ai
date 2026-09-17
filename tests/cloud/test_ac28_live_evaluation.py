@@ -88,14 +88,20 @@ def test_ac28_eval_runner_fails_on_missing_or_invalid_credentials():
     run_evals_py = EVALS_DIR / "run_evals.py"
     assert run_evals_py.exists(), "evals/run_evals.py must exist"
 
-    # Run with explicitly bad credentials
-    env = {"PATH": os.environ.get("PATH", ""), "GOOGLE_AI_API_KEY": "invalid-dummy-key-for-test"}
+    # Run with empty credentials (fails fast locally with zero network I/O)
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONPATH": str(ROOT_DIR),
+        "GEMINI_API_KEY": "",
+        "GOOGLE_AI_API_KEY": "",
+    }
     proc = subprocess.run(
         [sys.executable, str(run_evals_py), "--mode", "live"],
         capture_output=True,
         text=True,
         check=False,
         env=env,
+        timeout=10.0,
     )
 
     # Must exit with code 2 (BLOCKED)

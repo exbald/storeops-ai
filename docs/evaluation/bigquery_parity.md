@@ -80,3 +80,10 @@ The parity suite is validated in `tests/cloud/test_ac27_bigquery_parity.py`:
 - `test_ac27_inventory_as_of_parity`: Validates as-of timestamp filtering across multi-location inventory.
 
 All tests pass deterministically.
+
+---
+
+## 5. Live Cloud Execution Gates (G3 / G5) Status
+
+* **Adapter & Query Parity**: Verified via deterministic DuckDB execution, BigQuery standard SQL query structure analysis, parameter validation, and type round-trip checks.
+* **Live BigQuery Cloud Gate**: In environments without live Google Cloud Platform service account credentials or active network connectivity to `bigquery.googleapis.com`, live execution against GCP BigQuery remains explicitly `[BLOCKED]`, adhering to `AGENTS.md` requirements against success-shaped fallbacks or synthetic passes.

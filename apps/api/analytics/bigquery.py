@@ -35,22 +35,25 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         self.dataset_id = dataset_id or "disposable_test_analytics"
         self.allow_prod = allow_prod
 
-        # Safety check: Prevent targeting production datasets without explicit override
+        # Safety check: Prevent targeting production datasets or projects without explicit override
         if not self.allow_prod:
             ds_lower = self.dataset_id.lower()
             proj_lower = self.project_id.lower()
-            if ("prod" in ds_lower or "prod" in proj_lower) and not (
-                "test" in ds_lower or "dev" in ds_lower or "disposable" in ds_lower
-            ):
+            if "prod" in proj_lower and not ("test" in proj_lower or "dev" in proj_lower or "disposable" in proj_lower):
                 raise ValueError(
-                    f"Refusing to target production-like dataset '{self.dataset_id}' in project '{self.project_id}' without allow_prod=True"
+                    f"Refusing to target production-like project '{self.project_id}' without allow_prod=True"
+                )
+            if "prod" in ds_lower and not ("test" in ds_lower or "dev" in ds_lower or "disposable" in ds_lower):
+                raise ValueError(
+                    f"Refusing to target production-like dataset '{self.dataset_id}' without allow_prod=True"
                 )
 
         try:
             from google.cloud import bigquery  # type: ignore
 
             self._client = bigquery.Client(project=self.project_id)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("BigQuery client initialization failed or skipped: %s", exc)
             self._client = None
 
     def _get_table_id(self, table_name: str) -> str:
@@ -129,7 +132,7 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
                    i.normalized_units, i.batch_id, b.committed_at,
                    ROW_NUMBER() OVER(
                        PARTITION BY i.workspace_id, i.location_id, i.sku
-                       ORDER BY i.observed_at DESC, b.committed_at DESC
+                       ORDER BY i.observed_at DESC, b.committed_at DESC, i.batch_id DESC
                    ) as rn
             FROM {table_inv} i
             JOIN {table_batches} b ON i.batch_id = b.batch_id
@@ -205,7 +208,7 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
                     "sku": str(r["sku"]),
                     "business_date": str(r["business_date"]),
                     "units": int(r["units"]),
-                    "revenue": float(r["revenue"]),
+                    "revenue": str(r["revenue"]) if isinstance(r["revenue"], Decimal) else str(Decimal(str(r["revenue"]))),
                     "currency": str(r["currency"]),
                 }
                 for r in rows
