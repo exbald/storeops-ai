@@ -79,8 +79,8 @@ class InMemoryPolicyRepository(PolicyRepository):
             promos = [
                 p for (ws_id, _), p in self.promotions.items() if ws_id == workspace_id
             ]
-            # sort by created_at desc
-            promos.sort(key=lambda p: p.created_at, reverse=True)
+            # sort by created_at desc then id tiebreak
+            promos.sort(key=lambda p: (p.created_at, p.id), reverse=True)
 
             start_idx = 0
             if cursor:

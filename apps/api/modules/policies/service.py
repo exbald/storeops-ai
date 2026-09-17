@@ -54,8 +54,8 @@ class ValidationError(PolicyServiceError):
 
 
 class ConflictError(PolicyServiceError):
-    def __init__(self, message: str) -> None:
-        super().__init__(message, status_code=409, code="VERSION_CONFLICT")
+    def __init__(self, message: str, code: str = "PROMOTION_ARCHIVED") -> None:
+        super().__init__(message, status_code=409, code=code)
 
 
 def compute_policy_content_sha256(
@@ -252,6 +252,14 @@ class PolicyService:
         expected_version: int,
         uid: str,
     ) -> Job:
+        """Trigger policy rule extraction from agreement media.
+
+        Execution profile note:
+        In the default LOCAL in-memory profile, the job record is created in StateRepository with
+        stage="QUEUED", processed inline, and returned with terminal stage/status.
+        In the CLOUD / worker deployment profile, this endpoint returns 202 with QUEUED job and
+        delegates processing to worker outbox handlers.
+        """
         promo = await self.get_promotion(workspace_id, promotion_id)
 
         if promo.archived:
