@@ -133,6 +133,28 @@ def test_bigquery_schema_ddl():
     assert "CLUSTER BY workspace_id, batch_id" in content
 
 
+def test_bigquery_schema_parity_with_migration():
+    """AC-41: Assert infra/bigquery_schema.sql and migrations/bigquery/001_initial_analytics.sql maintain table parity."""
+    infra_ddl = INFRA_DIR / "bigquery_schema.sql"
+    migration_ddl = ROOT_DIR / "migrations" / "bigquery" / "001_initial_analytics.sql"
+    assert infra_ddl.exists()
+    assert migration_ddl.exists()
+
+    infra_text = infra_ddl.read_text(encoding="utf-8")
+    mig_text = migration_ddl.read_text(encoding="utf-8")
+
+    for tbl in ["import_batches", "sales_facts", "inventory_facts"]:
+        assert f"CREATE TABLE IF NOT EXISTS {tbl}" in infra_text
+        assert f"CREATE TABLE IF NOT EXISTS {tbl}" in mig_text
+
+    assert "PARTITION BY DATE(committed_at)" in infra_text
+    assert "PARTITION BY DATE(committed_at)" in mig_text
+    assert "PARTITION BY business_date" in infra_text
+    assert "PARTITION BY business_date" in mig_text
+    assert "PARTITION BY DATE(observed_at)" in infra_text
+    assert "PARTITION BY DATE(observed_at)" in mig_text
+
+
 def test_worker_iam_and_scheduler_specs():
     """AC-41: worker IAM must be private and outbox schedule must run once per minute."""
     worker_iam = INFRA_DIR / "worker_iam.json"

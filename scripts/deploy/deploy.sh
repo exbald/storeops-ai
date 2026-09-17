@@ -142,10 +142,18 @@ if [ ! -f "${BQ_DDL_FILE}" ]; then
 fi
 
 if [ -f "${BQ_DDL_FILE}" ]; then
-    echo "Applying BigQuery schema DDL from ${BQ_DDL_FILE}..."
-    bq query --use_legacy_sql=false \
-        --dataset_id="${BQ_DATASET}" \
-        --project_id="${PROJECT_ID}" < "${BQ_DDL_FILE}"
+    echo "Applying BigQuery schema DDL statement-by-statement from ${BQ_DDL_FILE}..."
+    python3 -c "
+import subprocess
+with open('${BQ_DDL_FILE}', 'r', encoding='utf-8') as f:
+    sql = f.read()
+statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+for stmt in statements:
+    first_line = [l.strip() for l in stmt.splitlines() if l.strip() and not l.strip().startswith('--')][0]
+    print(f'Executing DDL: {first_line}...')
+    cmd = ['bq', 'query', '--use_legacy_sql=false', f'--dataset_id=${BQ_DATASET}', f'--project_id=${PROJECT_ID}', stmt]
+    subprocess.run(cmd, check=True)
+"
 fi
 
 # 8. Firestore Database and Indexes

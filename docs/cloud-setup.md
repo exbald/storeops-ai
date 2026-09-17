@@ -185,3 +185,16 @@ If a deployed revision introduces defects, roll back traffic immediately using `
 ```
 
 The script shifts 100% of Cloud Run traffic back to the specified revision with zero downtime.
+
+---
+
+## 8. Container Packaging & Execution Runtime
+
+1. **Image Build Pipeline**:
+   - `scripts/deploy/deploy.sh` utilizes Cloud Build (`gcloud run deploy --source .`) to build source code into container images and register them directly in Artifact Registry.
+   - Terraform (`infra/main.tf`) declares the canonical Artifact Registry repository (`google_artifact_registry_repository.storeops`) and references the deployed image tags.
+2. **Worker Runtime & Working Directory**:
+   - `scripts/deploy/run_worker.py` must be executed with the repository root as the working directory (`WORKDIR /app`).
+   - Cloud Run container runtime resolves package paths via `scripts/deploy/__init__.py`.
+   - The worker service listens on container port 8001 for Cloud Run container lifecycle checks while running the asynchronous outbox processing loop. Security is strictly enforced via Cloud Run internal ingress (`INGRESS_TRAFFIC_INTERNAL_ONLY`) and Google IAM (`roles/run.invoker` granted exclusively to `storeops-invoker-sa`).
+
