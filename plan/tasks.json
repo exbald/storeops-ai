@@ -593,7 +593,7 @@
     {
       "id": "T11",
       "title": "Provision authorized cloud development deployment",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T01"
