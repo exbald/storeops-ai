@@ -178,3 +178,78 @@ async def test_ac12_single_active_investigation_invariant(
     )
     assert res_inv2.status_code == 409
     assert res_inv2.json()["code"] == "ACTIVE_INVESTIGATION_EXISTS"
+
+
+@pytest.mark.asyncio
+async def test_ac12_list_investigations_pagination_and_invalid_cursor(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+):
+    headers = workspace_setup["rep_headers"]
+    promo, _policy_ver, _rule = sample_promotion_with_policy
+
+    # Create visit 1 and investigation 1
+    res_v1 = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Visit 1"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    v1_id = UUID(res_v1.json()["id"])
+    m1 = await sample_ready_media(v1_id, filename="m1.jpg")
+    res_inv1 = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(v1_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(m1.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv1-{uuid4()}"},
+    )
+    assert res_inv1.status_code == 202
+
+    # Create visit 2 and investigation 2
+    res_v2 = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Visit 2"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    v2_id = UUID(res_v2.json()["id"])
+    m2 = await sample_ready_media(v2_id, filename="m2.jpg")
+    res_inv2 = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(v2_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(m2.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv2-{uuid4()}"},
+    )
+    assert res_inv2.status_code == 202
+
+    # List page 1 with limit=1
+    res_p1 = await client.get("/investigations?limit=1", headers=headers)
+    assert res_p1.status_code == 200
+    p1 = res_p1.json()
+    assert len(p1["items"]) == 1
+    assert p1["next_cursor"] is not None
+
+    # List page 2 with next_cursor
+    res_p2 = await client.get(
+        f"/investigations?cursor={p1['next_cursor']}&limit=1", headers=headers
+    )
+    assert res_p2.status_code == 200
+    p2 = res_p2.json()
+    assert len(p2["items"]) == 1
+    assert p2["items"][0]["id"] != p1["items"][0]["id"]
+
+    # Malformed cursor returns 422 INVALID_CURSOR
+    res_bad = await client.get(
+        "/investigations?cursor=not_a_valid_base64_int!", headers=headers
+    )
+    assert res_bad.status_code == 422
+    assert res_bad.json()["code"] == "INVALID_CURSOR"

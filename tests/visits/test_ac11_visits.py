@@ -295,3 +295,14 @@ async def test_ac11_list_visits_with_filtering_and_pagination(
     data2 = res_page2.json()
     assert len(data2["items"]) == 1
     assert data2["next_cursor"] is None
+
+
+def test_prod_app_exposes_visits_and_investigations_routes():
+    from apps.api.main import app
+
+    paths = app.openapi()["paths"]
+    assert "/visits" in paths
+    assert "/investigations" in paths
+    assert "/investigations/{investigation_id}" in paths
+    assert "/investigations/{investigation_id}/evidence" in paths
+    assert "/reports/{report_id}" in paths

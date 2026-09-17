@@ -102,7 +102,7 @@ async def test_ac15_evidence_listing_and_locators(
 
     # Check locator contents on visual evidence
     kinds = [item["kind"] for item in items]
-    assert "SALES_ROWS" in kinds or "VISUAL" in kinds or "POLICY_CLAUSE" in kinds
+    assert "PHOTO" in kinds and "POLICY" in kinds
 
     for item in items:
         assert item["investigation_id"] == inv_id
@@ -395,3 +395,124 @@ async def test_ac15_evidence_pagination(
     p2 = res_p2.json()
     assert len(p2["items"]) == 1
     assert p2["items"][0]["id"] != p1["items"][0]["id"]
+
+    # Malformed cursor returns 422 INVALID_CURSOR
+    res_bad = await client.get(
+        f"/investigations/{inv_id}/evidence?cursor=invalid_base64_not_int!",
+        headers=headers,
+    )
+    assert res_bad.status_code == 422
+    assert res_bad.json()["code"] == "INVALID_CURSOR"
+
+
+@pytest.mark.asyncio
+async def test_ac15_claim_contradicting_computed_metrics_dto_fails_to_incomplete(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+    analytics_repo,
+    model_gateway,
+):
+    ws_id = workspace_setup["workspace_id"]
+    headers = workspace_setup["rep_headers"]
+    promo, _policy_ver, rule = sample_promotion_with_policy
+
+    # Commit sales with a steep negative drop: prior 200 units, current 50 units (sales_delta = -0.75)
+    await analytics_repo.commit_import_batch(
+        workspace_id=ws_id,
+        batch_id=str(uuid4()),
+        kind="SALES",
+        import_id=uuid4(),
+        source_sha256="5" * 64,
+        rows=[
+            {
+                "store_id": sample_store.id,
+                "sku": "SKU-ISO-1",
+                "business_date": "2026-08-05",
+                "units": 200,
+                "revenue": 400.0,
+                "currency": "SGD",
+            },
+            {
+                "store_id": sample_store.id,
+                "sku": "SKU-ISO-1",
+                "business_date": "2026-08-10",
+                "units": 50,
+                "revenue": 100.0,
+                "currency": "SGD",
+            },
+        ],
+    )
+
+    res_v = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Checking metric conflict"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    visit_id = UUID(res_v.json()["id"])
+    media = await sample_ready_media(visit_id)
+
+    # Register contradictory proposal that claims sales grew significantly despite negative sales delta
+    def contradictory_metrics_response(prompt: str):
+        import re
+
+        ev_match = re.search(
+            r"<available_evidence_ids>(.*?)</available_evidence_ids>", prompt, re.DOTALL
+        )
+        evidence_ids = []
+        if ev_match:
+            for raw_id in re.findall(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                ev_match.group(1),
+            ):
+                evidence_ids.append(UUID(raw_id))
+        eid = evidence_ids[0] if evidence_ids else uuid4()
+
+        return AnalysisProposal(
+            hypothesis="EXECUTION",
+            summary="Contradictory claim against computed metrics DTO.",
+            claims=[
+                ProposedClaim(
+                    claim_key="c1",
+                    kind="METRIC",
+                    text="Product sales grew tremendously across the campaign window.",
+                    evidence_ids=[eid],
+                )
+            ],
+            alternatives=[],
+            actions=[
+                ProposedAction(
+                    kind="RESTORE_FACINGS",
+                    rule_ids=[rule.rule_id],
+                    claim_keys=["c1"],
+                    evidence_ids=[eid],
+                    instruction="Restore facings.",
+                    required_zone_ids=["shelf-1"],
+                )
+            ],
+            unresolved_questions=[],
+        )
+
+    model_gateway.register_response(AnalysisProposal, contradictory_metrics_response)
+
+    res_inv = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(visit_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(media.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv-{uuid4()}"},
+    )
+    assert res_inv.status_code == 202
+    job_data = res_inv.json()
+    inv_id = job_data["resource_id"]
+
+    res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
+    assert res_get.status_code == 200
+    inv = res_get.json()
+    # Contradicting metrics DTO must fail grounding validation and result in INCOMPLETE state
+    assert inv["state"] == "INCOMPLETE"

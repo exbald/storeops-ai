@@ -50,7 +50,6 @@ from apps.api.modules.visits.dependencies import (
     set_visit_repository,
 )
 from apps.api.modules.visits.repository import InMemoryVisitRepository
-from apps.api.modules.visits.router import router as visit_router
 
 # Include routers if not yet registered in main app
 if not any(getattr(route, "path", None) == "/stores" for route in app.routes):
@@ -58,9 +57,6 @@ if not any(getattr(route, "path", None) == "/stores" for route in app.routes):
 
 if not any(getattr(route, "path", None) == "/promotions" for route in app.routes):
     app.include_router(policy_router)
-
-if not any(getattr(route, "path", None) == "/visits" for route in app.routes):
-    app.include_router(visit_router)
 
 
 @pytest.fixture

@@ -11,6 +11,8 @@ from storeops_contracts.models import (
     Visit,
 )
 
+from apps.api.core.errors import ApiError
+
 
 class VisitRepository(Protocol):
     async def create_visit(self, workspace_id: UUID, visit: Visit) -> Visit:
@@ -148,8 +150,12 @@ class InMemoryVisitRepository:
             try:
                 decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
                 start_idx = int(decoded)
-            except (ValueError, binascii.Error):
-                start_idx = 0
+            except (ValueError, binascii.Error) as err:
+                raise ApiError(
+                    status_code=422,
+                    code="INVALID_CURSOR",
+                    message="Malformed pagination cursor",
+                ) from err
 
         paginated = items[start_idx : start_idx + limit]
         next_cursor = None
@@ -208,8 +214,12 @@ class InMemoryVisitRepository:
             try:
                 decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
                 start_idx = int(decoded)
-            except (ValueError, binascii.Error):
-                start_idx = 0
+            except (ValueError, binascii.Error) as err:
+                raise ApiError(
+                    status_code=422,
+                    code="INVALID_CURSOR",
+                    message="Malformed pagination cursor",
+                ) from err
 
         paginated = items[start_idx : start_idx + limit]
         next_cursor = None
@@ -252,8 +262,12 @@ class InMemoryVisitRepository:
             try:
                 decoded = base64.urlsafe_b64decode(cursor.encode()).decode()
                 start_idx = int(decoded)
-            except (ValueError, binascii.Error):
-                start_idx = 0
+            except (ValueError, binascii.Error) as err:
+                raise ApiError(
+                    status_code=422,
+                    code="INVALID_CURSOR",
+                    message="Malformed pagination cursor",
+                ) from err
 
         paginated = items[start_idx : start_idx + limit]
         next_cursor = None

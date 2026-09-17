@@ -1,7 +1,7 @@
 import asyncio
 import hashlib
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -366,7 +366,9 @@ class VisitService:
             job=job,
         )
 
-        return job
+        # Re-fetch latest job from state_repo to avoid returning stale state on cloud/multi-worker
+        latest_job = await self.state_repo.get_job(workspace_id, job.id)
+        return latest_job or job
 
     async def _run_investigation_pipeline(
         self,
@@ -382,6 +384,7 @@ class VisitService:
             job.id, worker_id="investigation-worker"
         )
         now = self.clock.now_utc()
+        store = await self.catalog_repo.get_store(workspace_id, inv.store_id)
 
         # Stage 1: GATHERING_EVIDENCE
         if gen is not None:
@@ -412,9 +415,9 @@ class VisitService:
                 summary=f"Before shelf photograph {mid}",
                 source_id=mid,
                 source_sha256=(
-                    (media.normalized_sha256 or media.original_sha256)
-                    if media and (media.normalized_sha256 or media.original_sha256)
-                    else hashlib.sha256(f"media:{mid}".encode()).hexdigest()
+                    media.normalized_sha256 or media.original_sha256
+                    if media
+                    else "0" * 64
                 ),
                 locator=Locator(
                     media_id=mid,
@@ -517,8 +520,8 @@ class VisitService:
                 sales_facts = await self.analytics_repo.get_sales_window(
                     workspace_id=workspace_id,
                     store_id=inv.store_id,
-                    start_date="2026-08-01",
-                    end_date="2026-08-14",
+                    start_date="1900-01-01",
+                    end_date="2100-01-01",
                 )
                 stock_facts = await self.analytics_repo.get_latest_inventory(
                     workspace_id=workspace_id,
@@ -528,114 +531,138 @@ class VisitService:
             except (KeyError, ValueError, RuntimeError, OSError) as e:
                 logger.warning("Error fetching analytics data for investigation: %s", e)
 
-        sales_sha = (
-            sales_batches[0]["source_sha256"]
-            if sales_batches
-            else hashlib.sha256(f"sales:{inv.snapshot_id}".encode()).hexdigest()
-        )
-        sales_batch_ids: list[UUID] = []
-        for b in sales_batches:
-            try:
-                sales_batch_ids.append(UUID(str(b["batch_id"])))
-            except ValueError:
-                pass
-
-        stock_sha = (
-            stock_batches[0]["source_sha256"]
-            if stock_batches
-            else hashlib.sha256(f"stock:{inv.snapshot_id}".encode()).hexdigest()
-        )
-        stock_batch_ids: list[UUID] = []
-        for b in stock_batches:
-            try:
-                stock_batch_ids.append(UUID(str(b["batch_id"])))
-            except ValueError:
-                pass
-
         from storeops_contracts.models import (
             Currency,
             Freshness2,
+            Gap,
             LocationType,
             MissingItem,
             Status8,
             StockItem,
             ToolEnvelope,
             Unit,
+            Visit1,
         )
 
-        sales_ev_id = uuid4()
-        sales_ev = Evidence(
-            id=sales_ev_id,
-            investigation_id=inv.id,
-            kind=Kind8.SALES_ROWS,
-            observed_at=now,
-            retrieved_at=now,
-            freshness=Freshness1.CURRENT,
-            summary="Committed weekly sales rows snapshot",
-            source_id=inv.snapshot_id,
-            source_sha256=sales_sha,
-            locator=Locator(
-                media_id=None,
-                page=None,
-                quote=None,
-                box=None,
-                row_ids=[],
-                batch_ids=sales_batch_ids,
-                query_template_id="sales_window_v1",
-                query_job_id=None,
-                query_parameters={"store_id": str(inv.store_id)},
-            ),
+        sales_ev_ids: list[UUID] = []
+        if sales_batches:
+            sales_batch_ids: list[UUID] = []
+            for b in sales_batches:
+                try:
+                    sales_batch_ids.append(UUID(str(b["batch_id"])))
+                except ValueError:
+                    pass
+            source_id = None
+            try:
+                source_id = UUID(str(sales_batches[0]["import_id"]))
+            except (ValueError, KeyError):
+                source_id = inv.snapshot_id
+
+            sales_ev_id = uuid4()
+            sales_ev = Evidence(
+                id=sales_ev_id,
+                investigation_id=inv.id,
+                kind=Kind8.SALES_ROWS,
+                observed_at=now,
+                retrieved_at=now,
+                freshness=Freshness1.CURRENT,
+                summary="Committed weekly sales rows snapshot",
+                source_id=source_id,
+                source_sha256=sales_batches[0]["source_sha256"],
+                locator=Locator(
+                    media_id=None,
+                    page=None,
+                    quote=None,
+                    box=None,
+                    row_ids=[],
+                    batch_ids=sales_batch_ids,
+                    query_template_id="sales_window_v1",
+                    query_job_id=None,
+                    query_parameters={"store_id": str(inv.store_id)},
+                ),
+            )
+            await self.visit_repo.save_evidence(workspace_id, sales_ev)
+            known_evidence_ids.append(sales_ev_id)
+            sales_ev_ids.append(sales_ev_id)
+
+        stock_ev_ids: list[UUID] = []
+        if stock_batches:
+            stock_batch_ids: list[UUID] = []
+            for b in stock_batches:
+                try:
+                    stock_batch_ids.append(UUID(str(b["batch_id"])))
+                except ValueError:
+                    pass
+            source_id = None
+            try:
+                source_id = UUID(str(stock_batches[0]["import_id"]))
+            except (ValueError, KeyError):
+                source_id = inv.snapshot_id
+
+            stock_ev_id = uuid4()
+            stock_ev = Evidence(
+                id=stock_ev_id,
+                investigation_id=inv.id,
+                kind=Kind8.STOCK_ROWS,
+                observed_at=now,
+                retrieved_at=now,
+                freshness=Freshness1.CURRENT,
+                summary="Committed latest inventory snapshot",
+                source_id=source_id,
+                source_sha256=stock_batches[0]["source_sha256"],
+                locator=Locator(
+                    media_id=None,
+                    page=None,
+                    quote=None,
+                    box=None,
+                    row_ids=[],
+                    batch_ids=stock_batch_ids,
+                    query_template_id="latest_stock_v1",
+                    query_job_id=None,
+                    query_parameters={"store_id": str(inv.store_id)},
+                ),
+            )
+            await self.visit_repo.save_evidence(workspace_id, stock_ev)
+            known_evidence_ids.append(stock_ev_id)
+            stock_ev_ids.append(stock_ev_id)
+
+        cat_pids = policy_ver.catalog_product_ids
+
+        # Derive commercial window dates dynamically from actual facts
+        sorted_dates = sorted(
+            {
+                str(f.get("business_date", ""))
+                for f in sales_facts
+                if f.get("business_date")
+            }
         )
-        await self.visit_repo.save_evidence(workspace_id, sales_ev)
-        known_evidence_ids.append(sales_ev_id)
+        if len(sorted_dates) >= 2:
+            mid = len(sorted_dates) // 2
+            prior_dates = sorted_dates[:mid]
+            current_dates = sorted_dates[mid:]
+            prior_start = date.fromisoformat(prior_dates[0])
+            prior_end = date.fromisoformat(prior_dates[-1])
+            current_start = date.fromisoformat(current_dates[0])
+            current_end = date.fromisoformat(current_dates[-1])
 
-        stock_ev_id = uuid4()
-        stock_ev = Evidence(
-            id=stock_ev_id,
-            investigation_id=inv.id,
-            kind=Kind8.STOCK_ROWS,
-            observed_at=now,
-            retrieved_at=now,
-            freshness=Freshness1.CURRENT,
-            summary="Committed latest inventory snapshot",
-            source_id=inv.snapshot_id,
-            source_sha256=stock_sha,
-            locator=Locator(
-                media_id=None,
-                page=None,
-                quote=None,
-                box=None,
-                row_ids=[],
-                batch_ids=stock_batch_ids,
-                query_template_id="latest_stock_v1",
-                query_job_id=None,
-                query_parameters={"store_id": str(inv.store_id)},
-            ),
-        )
-        await self.visit_repo.save_evidence(workspace_id, stock_ev)
-        known_evidence_ids.append(stock_ev_id)
+            prior_facts = [
+                f for f in sales_facts if str(f.get("business_date", "")) in prior_dates
+            ]
+            current_facts = [
+                f
+                for f in sales_facts
+                if str(f.get("business_date", "")) in current_dates
+            ]
 
-        cat_pids = (
-            policy_ver.catalog_product_ids
-            if policy_ver.catalog_product_ids
-            else [uuid4()]
-        )
-
-        prior_facts = [
-            f for f in sales_facts if str(f.get("business_date", "")) <= "2026-08-07"
-        ]
-        current_facts = [
-            f for f in sales_facts if str(f.get("business_date", "")) > "2026-08-07"
-        ]
-
-        if prior_facts and current_facts:
             sales_complete = True
-            sales_gaps = []
+            sales_gaps: list[Gap] = []
             prior_units = sum(int(f["units"]) for f in prior_facts)
             current_units = sum(int(f["units"]) for f in current_facts)
-            prior_revenue = str(sum(Decimal(str(f["revenue"])) for f in prior_facts))
-            current_revenue = str(
-                sum(Decimal(str(f["revenue"])) for f in current_facts)
+            prior_revenue = (
+                f"{sum(Decimal(str(f['revenue'])) for f in prior_facts):.2f}"
+            )
+            current_revenue = (
+                f"{sum(Decimal(str(f['revenue'])) for f in current_facts):.2f}"
             )
             sales_currency = (
                 Currency(sales_facts[0]["currency"])
@@ -643,35 +670,49 @@ class VisitService:
                 and sales_facts[0].get("currency") in Currency.__members__
                 else Currency.SGD
             )
-        else:
+        elif len(sorted_dates) == 1:
+            d = date.fromisoformat(sorted_dates[0])
+            prior_start = d - timedelta(days=7)
+            prior_end = d - timedelta(days=1)
+            current_start = d
+            current_end = d
+            prior_facts = []
+            current_facts = sales_facts
             sales_complete = False
-            sales_gaps = ["Incomplete commercial window: missing sales facts"]
-            prior_units = (
-                sum(int(f["units"]) for f in prior_facts) if prior_facts else None
-            )
-            current_units = (
-                sum(int(f["units"]) for f in current_facts) if current_facts else None
-            )
-            prior_revenue = (
-                str(sum(Decimal(str(f["revenue"])) for f in prior_facts))
-                if prior_facts
-                else None
-            )
+            sales_gaps = [
+                Gap(root="Incomplete commercial window: missing prior window facts")
+            ]
+            prior_units = None
+            current_units = sum(int(f["units"]) for f in current_facts)
+            prior_revenue = None
             current_revenue = (
-                str(sum(Decimal(str(f["revenue"])) for f in current_facts))
-                if current_facts
-                else None
+                f"{sum(Decimal(str(f['revenue'])) for f in current_facts):.2f}"
             )
+            sales_currency = Currency.SGD
+        else:
+            inv_date = now.date()
+            prior_start = inv_date - timedelta(days=14)
+            prior_end = inv_date - timedelta(days=8)
+            current_start = inv_date - timedelta(days=7)
+            current_end = inv_date - timedelta(days=1)
+            sales_complete = False
+            sales_gaps = [
+                Gap(root="Incomplete commercial window: no sales facts found")
+            ]
+            prior_units = None
+            current_units = None
+            prior_revenue = None
+            current_revenue = None
             sales_currency = Currency.SGD
 
         sales_context = SalesContext(
             snapshot_id=inv.snapshot_id,
             store_id=inv.store_id,
             catalog_product_ids=cat_pids,
-            prior_start=date(2026, 8, 1),
-            prior_end=date(2026, 8, 7),
-            current_start=date(2026, 8, 8),
-            current_end=date(2026, 8, 14),
+            prior_start=prior_start,
+            prior_end=prior_end,
+            current_start=current_start,
+            current_end=current_end,
             complete=sales_complete,
             prior_units=prior_units,
             current_units=current_units,
@@ -680,7 +721,7 @@ class VisitService:
             currency=sales_currency,
             eligible_peers=[],
             gaps=sales_gaps,
-            evidence_ids=[sales_ev_id],
+            evidence_ids=sales_ev_ids,
         )
 
         inv.metrics = calculate_metrics_from_sales_context(
@@ -688,6 +729,11 @@ class VisitService:
         )
 
         stock_items: list[StockItem] = []
+        is_backroom = (
+            store and getattr(store, "backroom_location_id", None) == inv.store_id
+        )
+        max_age_hours = 4.0 if is_backroom else 24.0
+
         for sf in stock_facts:
             raw_obs = sf.get("observed_at")
             if isinstance(raw_obs, str):
@@ -700,6 +746,11 @@ class VisitService:
             if obs_dt.tzinfo is None:
                 obs_dt = obs_dt.replace(tzinfo=UTC)
 
+            age_hours = (now - obs_dt).total_seconds() / 3600.0
+            stock_freshness = (
+                Freshness2.CURRENT if age_hours <= max_age_hours else Freshness2.STALE
+            )
+
             stock_items.append(
                 StockItem(
                     product_id=cat_pids[0],
@@ -709,8 +760,8 @@ class VisitService:
                     unit=Unit.UNIT,
                     units_normalized=int(sf["normalized_units"]),
                     observed_at=obs_dt,
-                    freshness=Freshness2.CURRENT,
-                    evidence_id=stock_ev_id,
+                    freshness=stock_freshness,
+                    evidence_id=stock_ev_ids[0] if stock_ev_ids else uuid4(),
                 )
             )
 
@@ -730,12 +781,29 @@ class VisitService:
             missing=missing_items,
         )
 
+        past_visits_list, _ = await self.visit_repo.list_visits(
+            workspace_id, store_id=inv.store_id
+        )
+        mapped_past_visits: list[Visit1] = []
+        for pv in past_visits_list:
+            if pv.id != inv.visit_id and pv.notes:
+                mapped_past_visits.append(
+                    Visit1(
+                        visit_id=pv.id,
+                        visited_at=pv.created_at,
+                        notes=pv.notes[:5000],
+                        evidence_ids=[],
+                    )
+                )
+                if len(mapped_past_visits) >= 3:
+                    break
+
         registry.register(
             "get_sales_context",
             lambda inp: ToolEnvelope(
                 status=Status8.OK,
                 data=sales_context.model_dump(mode="json"),
-                evidence_ids=[sales_ev_id],
+                evidence_ids=sales_ev_ids,
                 as_of=now,
                 error=None,
             ),
@@ -746,7 +814,7 @@ class VisitService:
             lambda inp: ToolEnvelope(
                 status=Status8.OK,
                 data=stock_context.model_dump(mode="json"),
-                evidence_ids=[stock_ev_id],
+                evidence_ids=stock_ev_ids,
                 as_of=now,
                 error=None,
             ),
@@ -759,7 +827,7 @@ class VisitService:
                 data=VisitHistoryContext(
                     snapshot_id=inv.snapshot_id,
                     store_id=inv.store_id,
-                    visits=[],
+                    visits=mapped_past_visits,
                 ).model_dump(mode="json"),
                 evidence_ids=[],
                 as_of=now,
@@ -901,10 +969,13 @@ class VisitService:
             return
 
         # Determine support label (contracts/SEMANTICS.md:52-74)
+        all_stock_fresh = len(stock_items) > 0 and all(
+            item.freshness == Freshness2.CURRENT for item in stock_items
+        )
         is_supported = (
             sales_complete
             and len(sales_gaps) == 0
-            and len(stock_items) > 0
+            and all_stock_fresh
             and len(proposal.unresolved_questions) == 0
         )
         diagnosis_support = Support.SUPPORTED if is_supported else Support.LIMITED
