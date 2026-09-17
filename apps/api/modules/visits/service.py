@@ -579,7 +579,7 @@ class VisitService:
                     freshness=Freshness1.CURRENT,
                     summary="Committed weekly sales rows snapshot",
                     source_id=source_id,
-                    source_sha256=sales_batches[0]["source_sha256"],
+                    source_sha256=sales_batches[0].get("source_sha256") or ("0" * 64),
                     locator=Locator(
                         media_id=None,
                         page=None,
@@ -624,7 +624,7 @@ class VisitService:
                     freshness=Freshness1.CURRENT,
                     summary="Committed latest inventory snapshot",
                     source_id=source_id,
-                    source_sha256=stock_batches[0]["source_sha256"],
+                    source_sha256=stock_batches[0].get("source_sha256") or ("0" * 64),
                     locator=Locator(
                         media_id=None,
                         page=None,
@@ -661,41 +661,61 @@ class VisitService:
             return
 
         # Derive commercial window dates dynamically from actual facts
-        sorted_dates = sorted(
-            {
-                str(f.get("business_date", ""))
-                for f in sales_facts
-                if f.get("business_date")
-            }
-        )
+        valid_dates: list[str] = []
+        for f in sales_facts:
+            raw_d = f.get("business_date")
+            if raw_d:
+                try:
+                    date.fromisoformat(str(raw_d))
+                    valid_dates.append(str(raw_d))
+                except (ValueError, TypeError):
+                    pass
+        sorted_dates = sorted(set(valid_dates))
+
         if len(sorted_dates) >= 2:
-            mid = len(sorted_dates) // 2
-            prior_dates = sorted_dates[:mid]
-            current_dates = sorted_dates[mid:]
-            prior_start = date.fromisoformat(prior_dates[0])
-            prior_end = date.fromisoformat(prior_dates[-1])
-            current_start = date.fromisoformat(current_dates[0])
-            current_end = date.fromisoformat(current_dates[-1])
+            try:
+                mid = len(sorted_dates) // 2
+                prior_dates = sorted_dates[:mid]
+                current_dates = sorted_dates[mid:]
+                prior_start = date.fromisoformat(prior_dates[0])
+                prior_end = date.fromisoformat(prior_dates[-1])
+                current_start = date.fromisoformat(current_dates[0])
+                current_end = date.fromisoformat(current_dates[-1])
 
-            prior_facts = [
-                f for f in sales_facts if str(f.get("business_date", "")) in prior_dates
-            ]
-            current_facts = [
-                f
-                for f in sales_facts
-                if str(f.get("business_date", "")) in current_dates
-            ]
+                prior_facts = [
+                    f for f in sales_facts if str(f.get("business_date", "")) in prior_dates
+                ]
+                current_facts = [
+                    f
+                    for f in sales_facts
+                    if str(f.get("business_date", "")) in current_dates
+                ]
 
-            sales_complete = True
-            sales_gaps: list[Gap] = []
-            prior_units = sum(int(f["units"]) for f in prior_facts)
-            current_units = sum(int(f["units"]) for f in current_facts)
-            prior_revenue = (
-                f"{sum(Decimal(str(f['revenue'])) for f in prior_facts):.2f}"
-            )
-            current_revenue = (
-                f"{sum(Decimal(str(f['revenue'])) for f in current_facts):.2f}"
-            )
+                prior_units = sum(int(f.get("units", 0)) for f in prior_facts)
+                current_units = sum(int(f.get("units", 0)) for f in current_facts)
+                prior_revenue = (
+                    f"{sum(Decimal(str(f.get('revenue', 0))) for f in prior_facts):.2f}"
+                )
+                current_revenue = (
+                    f"{sum(Decimal(str(f.get('revenue', 0))) for f in current_facts):.2f}"
+                )
+                sales_complete = True
+                sales_gaps: list[Gap] = []
+            except (ValueError, KeyError, TypeError, ArithmeticError):
+                inv_date = now.date()
+                prior_start = inv_date - timedelta(days=14)
+                prior_end = inv_date - timedelta(days=8)
+                current_start = inv_date - timedelta(days=7)
+                current_end = inv_date - timedelta(days=1)
+                sales_complete = False
+                sales_gaps = [
+                    Gap(root="Commercial window calculation encountered malformed sales facts")
+                ]
+                prior_units = None
+                current_units = None
+                prior_revenue = None
+                current_revenue = None
+
             try:
                 sales_currency = (
                     Currency(sales_facts[0]["currency"])
@@ -705,23 +725,38 @@ class VisitService:
             except (ValueError, KeyError, IndexError):
                 sales_currency = Currency.SGD
         elif len(sorted_dates) == 1:
-            d = date.fromisoformat(sorted_dates[0])
-            prior_start = d - timedelta(days=7)
-            prior_end = d - timedelta(days=1)
-            current_start = d
-            current_end = d
-            prior_facts = []
-            current_facts = sales_facts
-            sales_complete = False
-            sales_gaps = [
-                Gap(root="Incomplete commercial window: missing prior window facts")
-            ]
-            prior_units = None
-            current_units = sum(int(f["units"]) for f in current_facts)
-            prior_revenue = None
-            current_revenue = (
-                f"{sum(Decimal(str(f['revenue'])) for f in current_facts):.2f}"
-            )
+            try:
+                d = date.fromisoformat(sorted_dates[0])
+                prior_start = d - timedelta(days=7)
+                prior_end = d - timedelta(days=1)
+                current_start = d
+                current_end = d
+                prior_facts = []
+                current_facts = sales_facts
+                sales_complete = False
+                sales_gaps = [
+                    Gap(root="Incomplete commercial window: missing prior window facts")
+                ]
+                prior_units = None
+                current_units = sum(int(f.get("units", 0)) for f in current_facts)
+                prior_revenue = None
+                current_revenue = (
+                    f"{sum(Decimal(str(f.get('revenue', 0))) for f in current_facts):.2f}"
+                )
+            except (ValueError, KeyError, TypeError, ArithmeticError):
+                inv_date = now.date()
+                prior_start = inv_date - timedelta(days=14)
+                prior_end = inv_date - timedelta(days=8)
+                current_start = inv_date - timedelta(days=7)
+                current_end = inv_date - timedelta(days=1)
+                sales_complete = False
+                sales_gaps = [
+                    Gap(root="Commercial window calculation encountered malformed sales facts")
+                ]
+                prior_units = None
+                current_units = None
+                prior_revenue = None
+                current_revenue = None
             sales_currency = Currency.SGD
         else:
             inv_date = now.date()
@@ -817,6 +852,12 @@ class VisitService:
                 )
                 continue
 
+            if not stock_ev_ids:
+                stock_gaps.append(
+                    Gap(root=f"Stock item for SKU '{row_sku}' has no associated evidence")
+                )
+                continue
+
             loc_type = (
                 LocationType.BACKROOM if is_backroom else LocationType.DISTRIBUTOR
             )
@@ -831,7 +872,7 @@ class VisitService:
                     units_normalized=norm_units,
                     observed_at=obs_dt,
                     freshness=stock_freshness,
-                    evidence_id=stock_ev_ids[0] if stock_ev_ids else uuid4(),
+                    evidence_id=stock_ev_ids[0],
                 )
             )
 
@@ -1105,6 +1146,8 @@ class VisitService:
             inv.state = State.PROPOSED
             inv.plan_revision = 1
 
+        inv.version += 1
+        inv.updated_at = self.clock.now_utc()
         await self.visit_repo.update_investigation(workspace_id, inv)
 
         if gen is not None:

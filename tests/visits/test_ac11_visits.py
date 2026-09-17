@@ -297,6 +297,15 @@ async def test_ac11_list_visits_with_filtering_and_pagination(
     assert len(data2["items"]) == 1
     assert data2["next_cursor"] is None
 
+    # Invalid cursor returns 422 INVALID_CURSOR
+    res_bad = await client.get(
+        "/visits",
+        params={"cursor": "not-a-valid-base64-cursor"},
+        headers=headers,
+    )
+    assert res_bad.status_code == 422
+    assert res_bad.json()["code"] == "INVALID_CURSOR"
+
 
 def test_prod_app_exposes_visits_and_investigations_routes():
     from apps.api.main import app
