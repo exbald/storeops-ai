@@ -197,18 +197,18 @@ async def test_ac17_verification_pass_saga_resolution(
         assert check["result"] == "PASS"
         assert len(check["evidence_ids"]) >= 1
 
-    # Investigation atomically transitioned to RESOLVED
+    # Investigation transitioned to RESOLVED via saga coordination
     updated_inv = await memory_visit_repo.get_investigation(test_workspace_id, inv.id)
     assert updated_inv is not None
     assert updated_inv.state == State.RESOLVED
     assert updated_inv.latest_verification_id == UUID(v_id)
 
-    # Visit atomically CLOSED
+    # Visit CLOSED via saga coordination
     updated_visit = await memory_visit_repo.get_visit(test_workspace_id, sample_visit.id)
     assert updated_visit is not None
     assert updated_visit.status == Status5.CLOSED
 
-    # Actions atomically VERIFIED
+    # Actions marked VERIFIED via saga coordination
     assert len(updated_inv.actions) == len(actions)
     for act in updated_inv.actions:
         assert act.status == Status6.VERIFIED

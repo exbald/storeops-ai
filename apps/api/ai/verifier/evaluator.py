@@ -4,6 +4,7 @@ import json
 import logging
 from uuid import UUID
 
+from pydantic import ValidationError
 from storeops_contracts.models import (
     Check,
     PolicyVersion,
@@ -131,12 +132,25 @@ class ExecutionVerifier:
                     response_schema=VerificationProposal,
                     images=raw_images,
                 )
-            except Exception as second_err:
+            except (
+                ModelGatewayError,
+                ModelSchemaError,
+                ValidationError,
+                ValueError,
+                KeyError,
+                RuntimeError,
+            ) as second_err:
                 logger.error(f"1-shot repair failed: {second_err}")
                 raise ModelSchemaError(
                     f"Verification output schema repair failed: {second_err}"
                 ) from second_err
-        except Exception as err:
+        except (
+            ModelGatewayError,
+            ValidationError,
+            ValueError,
+            KeyError,
+            RuntimeError,
+        ) as err:
             logger.error(f"Model gateway invocation error: {err}")
             raise ModelGatewayError(f"Model gateway failure: {err}") from err
 

@@ -46,7 +46,13 @@ logger = logging.getLogger(__name__)
 
 
 class VerificationService:
-    """Service orchestrating execution verification and saga-coordinated resolution."""
+    """Service orchestrating execution verification and saga-coordinated resolution.
+
+    Implementation uses sequential writes with compensating rollbacks: non-PASS outcomes
+    transition the investigation to NEEDS_WORK; PASS outcomes resolve actions, investigation,
+    and visit in sequence with rollback compensation if a downstream write fails.
+    OCC version fencing is evaluated in-process for LOCAL and transactional adapters for CLOUD.
+    """
 
     def __init__(
         self,
@@ -236,7 +242,8 @@ class VerificationService:
         )
         try:
             await self.state_repo.create_job_with_outbox(job)
-        except Exception:
+        except (RuntimeError, ValueError, KeyError, OSError) as job_err:
+            logger.error(f"Failed to create verification job: {job_err}")
             # Saga compensation: rollback investigation state to original entry state
             inv.state = pre_job_inv_state
             inv.latest_verification_id = pre_job_latest_ver
@@ -324,7 +331,7 @@ class VerificationService:
             valid_evidence_ids.append(ev_id)
             valid_evidence_ids.append(m.id)
 
-            zone_id = m.zone_id or ""
+            zone_id = m.zone_id or "unassigned-zone"
             zone_kind_val = m.zone_kind.value if m.zone_kind else "SHELF"
             cap_time = m.captured_at or m.created_at
 
@@ -416,6 +423,8 @@ class VerificationService:
             ValidationError,
             ValueError,
             KeyError,
+            RuntimeError,
+            OSError,
         ) as err:
             logger.error(f"Verification engine failure: {err}")
             # states.json: A failed verification job returns its investigation to NEEDS_WORK without an aggregate PASS
