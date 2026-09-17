@@ -33,26 +33,38 @@ export interface AuthContextType {
   signOut: () => void;
 }
 
+const isDoublesMode =
+  typeof process !== "undefined" && process.env.NEXT_PUBLIC_USE_DOUBLES === "true";
+const configuredToken =
+  (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN : null) || null;
+
+// In live mode (NEXT_PUBLIC_USE_DOUBLES !== "true"), hardcoded fallback tokens are strictly disabled.
+// Live deployments require NEXT_PUBLIC_AUTH_TOKEN or explicit user authentication.
 const DEFAULT_AUTH_TOKEN =
-  (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN : "") ||
-  "storeops-dev-session-token";
+  configuredToken || (isDoublesMode ? "storeops-dev-session-token" : null);
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<{ id: string; email: string } | null>({
-    id: "usr-admin-001",
-    email: "admin@storeops.local",
-  });
   const [token, setToken] = useState<string | null>(DEFAULT_AUTH_TOKEN);
-  const [memberships, setMemberships] = useState<Membership[]>(MOCK_MEMBERSHIPS);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(DEFAULT_WORKSPACE_ID);
+  const [user, setUser] = useState<{ id: string; email: string } | null>(
+    DEFAULT_AUTH_TOKEN
+      ? { id: "usr-admin-001", email: "admin@storeops.local" }
+      : null
+  );
+  const [memberships, setMemberships] = useState<Membership[]>(
+    DEFAULT_AUTH_TOKEN ? MOCK_MEMBERSHIPS : []
+  );
+  const [workspaceId, setWorkspaceId] = useState<string | null>(
+    DEFAULT_AUTH_TOKEN ? DEFAULT_WORKSPACE_ID : null
+  );
   const [role, setRole] = useState<UserRole>("ADMIN");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Initialize or fetch /me
+  // Initialize or fetch /me when token is available
   useEffect(() => {
     async function loadMe() {
+      if (!token) return;
       try {
         const me = await apiClient.getMe();
         setUser({ id: me.user_id, email: me.email });
@@ -66,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     loadMe();
-  }, []);
+  }, [token]);
 
   // Sync workspaceId and authToken to apiClient singleton
   useEffect(() => {

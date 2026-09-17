@@ -136,6 +136,38 @@ export class StoreOpsClient {
     this.currentAuthToken = token;
   }
 
+  public setUseDoubles(useDoubles: boolean): void {
+    (this as { useDoubles: boolean }).useDoubles = useDoubles;
+  }
+
+  public resetDoubles(): void {
+    this.doubleStores = MOCK_STORES.map((s) => ({ ...s }));
+    this.doubleProducts = MOCK_PRODUCTS.map((p) => ({ ...p }));
+    this.doubleLocations = MOCK_LOCATIONS.map((l) => ({ ...l }));
+    this.doubleImports = MOCK_IMPORTS.map((i) => ({ ...i }));
+    this.doublePromotions = MOCK_PROMOTIONS.map((pr) => ({ ...pr }));
+    this.doublePolicyVersions = MOCK_POLICY_VERSIONS.map((pv) => ({ ...pv }));
+    this.doubleVisits = MOCK_VISITS.map((v) => ({ ...v }));
+    this.doubleInvestigations = MOCK_INVESTIGATIONS.map((inv) => ({ ...inv }));
+    this.doubleVerifications = MOCK_VERIFICATIONS.map((ver) => ({ ...ver }));
+    this.doubleReports = MOCK_REPORTS.map((r) => ({ ...r }));
+    this.doubleJobs = MOCK_JOBS.map((j) => ({ ...j }));
+    this.doubleJobEvents = MOCK_JOB_EVENTS.map((je) => ({ ...je }));
+    this.doubleMedia = [];
+  }
+
+  public getDoubleReports(): Report[] {
+    return this.doubleReports;
+  }
+
+  public getDoubleVisits(): Visit[] {
+    return this.doubleVisits;
+  }
+
+  public getDoubleInvestigations(): Investigation[] {
+    return this.doubleInvestigations;
+  }
+
   private async fetch<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (!this.baseUrl && !this.useDoubles) {
       throw new ApiRequestError(
@@ -185,7 +217,12 @@ export class StoreOpsClient {
         details: null,
       };
       try {
-        errBody = await response.json();
+        const json = await response.json();
+        if (json && typeof json === "object" && "error" in json && typeof json.error === "object" && json.error !== null) {
+          errBody = json.error as typeof errBody;
+        } else if (json && typeof json === "object") {
+          errBody = json as typeof errBody;
+        }
       } catch {
         // Fall back to status text
       }
