@@ -1,412 +1,494 @@
-"""StoreOps independent demo seed and replay suite (specs/00-product.md, AC30).
+"""Autonomous demo seed script for StoreOps.
 
-Provides:
-1. load_demo_manifest(): Loads fixtures/demo/manifest.json.
-2. seed_workspace(): Seeds stores, products, imports, policies, and visits via normal API endpoints.
-   Strictly idempotent: reuses existing resources and supports safe repeat execution.
-3. Standalone CLI entry point for operational seeding.
+Seeds an independent demonstration workspace with standard catalog, distributor,
+sales, inventory, promotional policies, visit, and shelf audit media using only
+standard HTTP client operations (AC30).
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
-from httpx import AsyncClient
+import httpx
 
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-DEMO_DIR = ROOT_DIR / "fixtures" / "demo"
-MANIFEST_PATH = DEMO_DIR / "manifest.json"
-
-
-def load_demo_manifest() -> dict[str, Any]:
-    """Loads the static demo manifest definition."""
-    if not MANIFEST_PATH.exists():
-        raise FileNotFoundError(f"Demo manifest not found at {MANIFEST_PATH}")
-    with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "fixtures" / "demo"
 
 
 async def upload_demo_media(
-    client: AsyncClient,
+    client: httpx.AsyncClient,
+    file_path: Path,
+    kind: str,
     headers: dict[str, str],
-    file_bytes: bytes,
-    filename: str,
-    mime_type: str,
-    kind: str = "IMPORT",
     store_id: str | None = None,
-    visit_id: str | None = None,
     zone_id: str | None = None,
     zone_kind: str | None = None,
     captured_at: str | None = None,
+    visit_id: str | None = None,
 ) -> str:
-    """Uploads media through StoreOps init/put/complete media workflow."""
-    sha = hashlib.sha256(file_bytes).hexdigest()
-    init_res = await client.post(
-        "/media",
-        headers={**headers, "Idempotency-Key": f"media-init-{sha}"},
-        json={
-            "kind": kind,
-            "filename": filename,
-            "mime_type": mime_type,
-            "byte_size": len(file_bytes),
-            "sha256": sha,
-            "store_id": store_id,
-            "visit_id": visit_id,
-            "product_id": None,
-            "zone_id": zone_id,
-            "zone_kind": zone_kind,
-            "captured_at": captured_at,
-        },
-    )
-    if init_res.status_code not in (200, 201):
-        raise RuntimeError(f"Failed to initialize media {filename}: {init_res.text}")
+    """Upload a demo media artifact via standard upload-url and complete flow."""
+    file_bytes = file_path.read_bytes()
+    sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+    mime_type = "text/csv" if file_path.suffix == ".csv" else "image/jpeg"
 
-    media_info = init_res.json()
-    media_id = media_info["media"]["id"]
-    upload_url = media_info["upload_url"]
+    if kind in ("IMPORT", "AGREEMENT"):
+        store_id = None
+        visit_id = None
+        zone_id = None
+        zone_kind = None
+        captured_at = None
 
-    upload_url_str = str(upload_url)
-    if "://" in upload_url_str:
-        upload_target = "/" + upload_url_str.split("://", 1)[1].split("/", 1)[1]
-    else:
-        upload_target = upload_url_str
+    init_payload: dict[str, object] = {
+        "kind": kind,
+        "filename": file_path.name,
+        "mime_type": mime_type,
+        "byte_size": len(file_bytes),
+        "sha256": sha256_hash,
+        "store_id": store_id,
+        "visit_id": visit_id,
+        "product_id": None,
+        "zone_id": zone_id,
+        "zone_kind": zone_kind,
+        "captured_at": captured_at,
+    }
+
+    req_headers = dict(headers)
+    req_headers["Idempotency-Key"] = f"seed-media-init-{file_path.name}-{kind}-{uuid4()}"
+
+    init_res = await client.post("/media", json=init_payload, headers=req_headers)
+    if init_res.status_code != 201:
+        raise RuntimeError(
+            f"Failed to initiate media upload for {file_path.name}: {init_res.status_code} {init_res.text}"
+        )
+
+    data = init_res.json()
+    media_id = data["media"]["id"]
+    upload_url = data["upload_url"]
+
+    # Parse target path for ASGI test client compatibility
+    parsed = urlparse(upload_url)
+    upload_target = parsed.path if parsed.path else upload_url
 
     put_res = await client.put(upload_target, content=file_bytes)
-    if put_res.status_code not in (200, 201, 204):
-        raise RuntimeError(f"Failed to upload bytes for {filename}: {put_res.text}")
+    if put_res.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Failed to PUT media bytes for {media_id}: {put_res.status_code} {put_res.text}"
+        )
 
     complete_res = await client.post(
         f"/media/{media_id}/complete",
-        headers={**headers, "Idempotency-Key": f"media-complete-{sha}"},
+        headers={**req_headers, "Idempotency-Key": f"seed-media-complete-{media_id}-{uuid4()}"},
         json={"expected_version": 1},
     )
     if complete_res.status_code not in (200, 201):
-        raise RuntimeError(f"Failed to complete media {filename}: {complete_res.text}")
+        raise RuntimeError(
+            f"Failed to complete media upload for {media_id}: {complete_res.status_code} {complete_res.text}"
+        )
 
     return media_id
 
 
 async def seed_workspace(
-    client: AsyncClient,
+    client: httpx.AsyncClient,
     workspace_id: UUID,
-    headers: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """Populates target workspace with demo catalog, data, policy, and visit.
+    admin_headers: dict[str, str],
+    fixtures_dir: Path | None = None,
+) -> dict[str, object]:
+    """Idempotently seed a workspace with complete demo data using standard HTTP APIs."""
+    base_dir = fixtures_dir or DEFAULT_FIXTURES_DIR
+    manifest_path = base_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Demo manifest not found at {manifest_path}")
 
-    Idempotent: running multiple times against the same workspace will not create duplicates.
-    """
-    manifest = load_demo_manifest()
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = json.load(f)
 
-    admin_headers = {
-        "Authorization": "Bearer demo-admin",
-        "X-Workspace-Id": str(workspace_id),
-    }
-    if headers:
-        admin_headers.update(headers)
-    if "Authorization" not in admin_headers and "x-user-id" in admin_headers:
-        admin_headers["Authorization"] = f"Bearer {admin_headers['x-user-id']}"
-    if "X-Workspace-Id" not in admin_headers and "x-workspace-id" in admin_headers:
-        admin_headers["X-Workspace-Id"] = admin_headers["x-workspace-id"]
+    sales_path = base_dir / manifest["imports"]["sales_csv"]
+    inv_path = base_dir / manifest["imports"]["inventory_csv"]
+    before_path = base_dir / manifest["media"]["shelf_before"]
+    after_path = base_dir / manifest["media"]["shelf_after"]
 
-    rep_headers = {
-        "Authorization": "Bearer demo-rep",
-        "X-Workspace-Id": str(workspace_id),
-    }
+    for p in (sales_path, inv_path, before_path, after_path):
+        if not p.exists():
+            raise FileNotFoundError(f"Required demo fixture missing: {p}")
 
-    # Ensure workspace exists in state_repo if state_repo is available
-    try:
-        from storeops_contracts.models import Currency, Workspace
+    headers = dict(admin_headers)
+    headers["X-Workspace-Id"] = str(workspace_id)
 
-        from apps.api.core.auth import get_state_repository
-
-        state_repo = get_state_repository()
-        ws = await state_repo.get_workspace(workspace_id)
-        if not ws:
-            now = datetime.now(UTC)
-            ws_currency_str = manifest.get("workspace", {}).get("currency", "USD")
-            ws_model = Workspace(
-                id=workspace_id,
-                workspace_id=workspace_id,
-                version=1,
-                created_at=now,
-                updated_at=now,
-                name=manifest.get("workspace", {}).get("name", "Demo Workspace"),
-                brand_name="AquaPure",
-                currency=Currency(ws_currency_str),
-            )
-            auth_token = admin_headers.get("Authorization", "").replace("Bearer ", "").strip() or "demo-admin"
-            await state_repo.create_workspace_with_admin(ws_model, uid=auth_token, email=f"{auth_token}@storeops.test")
-            await state_repo.add_membership(workspace_id, uid="demo-rep", role="REP", email="demo-rep@storeops.test")
-    except (ImportError, RuntimeError, KeyError, ValueError):
-        # If running against remote server or uninitialized state, skip direct state injection
-        pass
-
-    # 1. Store
-    store_code = manifest["store"]["code"]
-    stores_res = await client.get("/stores", headers=admin_headers)
-    existing_store = None
-    if stores_res.status_code == 200:
-        for s in stores_res.json().get("items", []):
-            if s.get("code") == store_code:
-                existing_store = s
+    # 1. Distributor Location (create or reuse)
+    dist_config = manifest["distributor"]
+    dist_loc_id: str | None = None
+    locs_res = await client.get("/locations", headers=headers)
+    if locs_res.status_code == 200:
+        for loc in locs_res.json().get("items", []):
+            if loc.get("code") == dist_config["code"]:
+                dist_loc_id = loc["id"]
                 break
 
-    if not existing_store:
-        store_payload = {
-            "code": manifest["store"]["code"],
-            "name": manifest["store"]["name"],
-            "retailer": manifest["store"].get("retailer", "Retail Demo Corp"),
-            "region": manifest["store"].get("region", "North"),
-            "format": manifest["store"].get("format", "Supermarket"),
-            "timezone": manifest["store"].get("timezone", "America/New_York"),
-            "distributor_location_id": manifest["store"].get("distributor_location_id"),
-        }
+    if not dist_loc_id:
+        loc_headers = dict(headers)
+        loc_headers["Idempotency-Key"] = f"seed-loc-{dist_config['code']}"
+        create_loc_res = await client.post(
+            "/locations",
+            json={
+                "code": dist_config["code"],
+                "name": dist_config["name"],
+                "type": dist_config["type"],
+            },
+            headers=loc_headers,
+        )
+        if create_loc_res.status_code != 201:
+            raise RuntimeError(
+                f"Failed to create distributor location: {create_loc_res.status_code} {create_loc_res.text}"
+            )
+        dist_loc_id = create_loc_res.json()["id"]
+
+    # 2. Store (create or reuse)
+    store_config = manifest["store"]
+    store_id: str | None = None
+    stores_res = await client.get("/stores", headers=headers)
+    if stores_res.status_code == 200:
+        for st in stores_res.json().get("items", []):
+            if st.get("code") == store_config["code"]:
+                store_id = st["id"]
+                break
+
+    if not store_id:
+        store_headers = dict(headers)
+        store_headers["Idempotency-Key"] = f"seed-store-{store_config['code']}"
         create_store_res = await client.post(
             "/stores",
-            headers={**admin_headers, "Idempotency-Key": f"demo-store-{store_code}"},
-            json=store_payload,
+            json={
+                "code": store_config["code"],
+                "name": store_config["name"],
+                "retailer": store_config["retailer"],
+                "region": store_config["region"],
+                "format": store_config["format"],
+                "timezone": store_config["timezone"],
+                "distributor_location_id": dist_loc_id,
+            },
+            headers=store_headers,
         )
-        if create_store_res.status_code not in (200, 201):
-            raise RuntimeError(f"Failed to create demo store: {create_store_res.text}")
-        store = create_store_res.json()
-    else:
-        store = existing_store
+        if create_store_res.status_code != 201:
+            raise RuntimeError(
+                f"Failed to create store: {create_store_res.status_code} {create_store_res.text}"
+            )
+        store_id = create_store_res.json()["id"]
 
-    store_id = store["id"]
-
-    # 2. Product
-    prod_sku = manifest["product"]["sku"]
-    prods_res = await client.get("/products", headers=admin_headers)
-    existing_prod = None
+    # 3. Product (create or reuse)
+    prod_config = manifest["product"]
+    product_id: str | None = None
+    prods_res = await client.get("/products", headers=headers)
     if prods_res.status_code == 200:
         for p in prods_res.json().get("items", []):
-            if p.get("sku") == prod_sku:
-                existing_prod = p
+            if p.get("sku") == prod_config["sku"]:
+                product_id = p["id"]
                 break
 
-    if not existing_prod:
-        prod_payload = {
-            "sku": manifest["product"]["sku"],
-            "name": manifest["product"]["name"],
-            "case_units": manifest["product"].get("case_units", 24),
-        }
+    if not product_id:
+        prod_headers = dict(headers)
+        prod_headers["Idempotency-Key"] = f"seed-prod-{prod_config['sku']}"
         create_prod_res = await client.post(
             "/products",
-            headers={**admin_headers, "Idempotency-Key": f"demo-prod-{prod_sku}"},
-            json=prod_payload,
+            json={
+                "sku": prod_config["sku"],
+                "name": prod_config["name"],
+                "case_units": prod_config["case_units"],
+            },
+            headers=prod_headers,
         )
-        if create_prod_res.status_code not in (200, 201):
-            raise RuntimeError(f"Failed to create demo product: {create_prod_res.text}")
-        product = create_prod_res.json()
-    else:
-        product = existing_prod
+        if create_prod_res.status_code != 201:
+            raise RuntimeError(
+                f"Failed to create product: {create_prod_res.status_code} {create_prod_res.text}"
+            )
+        product_id = create_prod_res.json()["id"]
 
-    product_id = product["id"]
-
-    # 3. Sales Import
-    sales_file = DEMO_DIR / manifest["imports"]["sales_csv"]
-    sales_bytes = sales_file.read_bytes()
-    sales_sha = hashlib.sha256(sales_bytes).hexdigest()
-
-    imports_res = await client.get("/imports", headers=admin_headers)
-    existing_sales = False
-    existing_inventory = False
+    # 4. Imports: Sales CSV (upload media, create import, commit)
+    sales_import_id: str | None = None
+    sales_committed_count = 0
+    imports_res = await client.get("/imports", headers=headers)
     if imports_res.status_code == 200:
         for imp in imports_res.json().get("items", []):
             if imp.get("kind") == "SALES" and imp.get("status") == "COMMITTED":
-                existing_sales = True
-            elif imp.get("kind") == "INVENTORY" and imp.get("status") == "COMMITTED":
-                existing_inventory = True
+                sales_import_id = imp["id"]
+                sales_committed_count = imp.get("row_count", 1)
+                break
 
-    if not existing_sales:
-        media_id = await upload_demo_media(
-            client=client,
-            headers=admin_headers,
-            file_bytes=sales_bytes,
-            filename="sales.csv",
-            mime_type="text/csv",
+    if not sales_import_id:
+        sales_media_id = await upload_demo_media(
+            client,
+            sales_path,
             kind="IMPORT",
+            headers=headers,
+            store_id=store_id,
         )
-        create_imp_res = await client.post(
+        sales_create_res = await client.post(
             "/imports",
-            headers={**admin_headers, "Idempotency-Key": f"demo-import-sales-{sales_sha}"},
-            json={"kind": "SALES", "media_id": media_id},
+            headers={**headers, "Idempotency-Key": f"seed-import-sales-{manifest['dated']}"},
+            json={"kind": "SALES", "media_id": sales_media_id},
         )
-        if create_imp_res.status_code in (200, 201, 202):
-            import_id = create_imp_res.json().get("resource_id") or create_imp_res.json().get("id")
-            await client.post(
-                f"/imports/{import_id}/commit",
-                headers={**admin_headers, "Idempotency-Key": f"demo-commit-sales-{sales_sha}"},
-                json={"expected_version": 1},
+        if sales_create_res.status_code != 202:
+            raise RuntimeError(
+                f"Failed to stage sales import: {sales_create_res.status_code} {sales_create_res.text}"
+            )
+        sales_import_id = sales_create_res.json()["resource_id"]
+
+        sales_commit = await client.post(
+            f"/imports/{sales_import_id}/commit",
+            headers={**headers, "Idempotency-Key": f"seed-commit-sales-{sales_import_id}"},
+            json={"expected_version": 1},
+        )
+        if sales_commit.status_code not in (200, 202):
+            raise RuntimeError(
+                f"Failed to commit sales import: {sales_commit.status_code} {sales_commit.text}"
             )
 
-    # 4. Inventory Import
-    if not existing_inventory:
-        inv_file = DEMO_DIR / manifest["imports"]["inventory_csv"]
-        inv_bytes = inv_file.read_bytes()
-        inv_sha = hashlib.sha256(inv_bytes).hexdigest()
+        verify_sales = await client.get(f"/imports/{sales_import_id}", headers=headers)
+        if verify_sales.status_code != 200 or verify_sales.json().get("status") != "COMMITTED":
+            raise RuntimeError(
+                f"Sales import commit check failed: {verify_sales.status_code} {verify_sales.text}"
+            )
+        sales_committed_count = verify_sales.json().get("row_count", 1)
 
-        media_id = await upload_demo_media(
-            client=client,
-            headers=admin_headers,
-            file_bytes=inv_bytes,
-            filename="inventory.csv",
-            mime_type="text/csv",
+    # 5. Imports: Inventory CSV (upload media, create import, commit)
+    inv_import_id: str | None = None
+    inv_committed_count = 0
+    if imports_res.status_code == 200:
+        for imp in imports_res.json().get("items", []):
+            if imp.get("kind") == "INVENTORY" and imp.get("status") == "COMMITTED":
+                inv_import_id = imp["id"]
+                inv_committed_count = imp.get("row_count", 1)
+                break
+
+    if not inv_import_id:
+        inv_media_id = await upload_demo_media(
+            client,
+            inv_path,
             kind="IMPORT",
+            headers=headers,
+            store_id=store_id,
         )
-        create_imp_res = await client.post(
+        inv_create_res = await client.post(
             "/imports",
-            headers={**admin_headers, "Idempotency-Key": f"demo-import-inv-{inv_sha}"},
-            json={"kind": "INVENTORY", "media_id": media_id},
+            headers={**headers, "Idempotency-Key": f"seed-import-inv-{manifest['dated']}"},
+            json={"kind": "INVENTORY", "media_id": inv_media_id},
         )
-        if create_imp_res.status_code in (200, 201, 202):
-            import_id = create_imp_res.json().get("resource_id") or create_imp_res.json().get("id")
-            await client.post(
-                f"/imports/{import_id}/commit",
-                headers={**admin_headers, "Idempotency-Key": f"demo-commit-inv-{inv_sha}"},
-                json={"expected_version": 1},
+        if inv_create_res.status_code != 202:
+            raise RuntimeError(
+                f"Failed to stage inventory import: {inv_create_res.status_code} {inv_create_res.text}"
+            )
+        inv_import_id = inv_create_res.json()["resource_id"]
+
+        inv_commit = await client.post(
+            f"/imports/{inv_import_id}/commit",
+            headers={**headers, "Idempotency-Key": f"seed-commit-inv-{inv_import_id}"},
+            json={"expected_version": 1},
+        )
+        if inv_commit.status_code not in (200, 202):
+            raise RuntimeError(
+                f"Failed to commit inventory import: {inv_commit.status_code} {inv_commit.text}"
             )
 
-    # 5. Policy / Promotion
-    promo_name = manifest["policies"]["title"]
-    promos_res = await client.get("/promotions", headers=admin_headers)
-    existing_promo = None
+        verify_inv = await client.get(f"/imports/{inv_import_id}", headers=headers)
+        if verify_inv.status_code != 200 or verify_inv.json().get("status") != "COMMITTED":
+            raise RuntimeError(
+                f"Inventory import commit check failed: {verify_inv.status_code} {verify_inv.text}"
+            )
+        inv_committed_count = verify_inv.json().get("row_count", 1)
+
+    # 6. Promotional Policy (create draft and approve)
+    promo_config = manifest["policies"]
+    promo_id: str | None = None
+    promo_version = 1
+    promos_res = await client.get("/promotions", headers=headers)
     if promos_res.status_code == 200:
         for p in promos_res.json().get("items", []):
-            if p.get("name") == promo_name:
-                existing_promo = p
+            if p.get("name") == promo_config["promotion_title"]:
+                promo_id = p["id"]
+                promo_version = p.get("version", 1)
                 break
 
-    if not existing_promo:
-        today = datetime.now(tz=UTC).date()
-        promo_res = await client.post(
+    if not promo_id:
+        promo_headers = dict(headers)
+        promo_headers["Idempotency-Key"] = f"seed-promo-{manifest['dated']}"
+        create_promo_res = await client.post(
             "/promotions",
-            headers={**admin_headers, "Idempotency-Key": f"demo-promo-{store_code}"},
             json={
-                "name": promo_name,
-                "starts_on": str(today),
-                "ends_on": str(today + timedelta(days=60)),
-                "store_ids": [store_id],
+                "name": promo_config["promotion_title"],
+                "starts_on": "2026-09-01",
+                "ends_on": "2026-09-30",
+                "store_ids": [str(store_id)],
                 "agreement_media_id": None,
             },
+            headers=promo_headers,
         )
-        if promo_res.status_code in (200, 201):
-            promo = promo_res.json()
-            promo_id = promo["id"]
-            # Approve standard rule
-            await client.post(
-                f"/promotions/{promo_id}/approve",
-                headers={**admin_headers, "Idempotency-Key": f"demo-approve-{promo_id}"},
-                json={
-                    "expected_version": promo["version"],
-                    "rules": [
-                        {
-                            "rule_id": str(uuid4()),
-                            "kind": "MIN_FACINGS",
-                            "zone_id": manifest["store"]["locations"][0]["code"],
-                            "zone_kind": "SHELF",
-                            "product_id": product_id,
-                            "min_facings": manifest["product"]["min_facings"],
-                            "source": {
-                                "kind": "MANUAL",
-                                "reviewer_note": "Demo seed merchandising rule",
-                            },
-                        }
-                    ],
-                },
+        if create_promo_res.status_code != 201:
+            raise RuntimeError(
+                f"Failed to create draft promotion: {create_promo_res.status_code} {create_promo_res.text}"
+            )
+        promo_data = create_promo_res.json()
+        promo_id = promo_data["id"]
+        promo_version = promo_data["version"]
+
+        merch_rule = {
+            "rule_id": str(uuid4()),
+            "kind": "MIN_FACINGS",
+            "zone_id": store_config["zone_id"],
+            "zone_kind": store_config["zone_kind"],
+            "product_id": str(product_id),
+            "min_facings": 2,
+            "source": {
+                "kind": "MANUAL",
+                "media_id": None,
+                "page": None,
+                "quote": None,
+                "reviewer_note": "Demo merchandising facing rule",
+            },
+        }
+
+        # Approve policy with required catalog_product_ids and expected_version
+        approve_headers = dict(headers)
+        approve_headers["Idempotency-Key"] = f"seed-approve-promo-{promo_id}"
+        approve_res = await client.post(
+            f"/promotions/{promo_id}/approve",
+            json={
+                "expected_version": promo_version,
+                "rules": [merch_rule],
+                "catalog_product_ids": [str(product_id)],
+            },
+            headers=approve_headers,
+        )
+        if approve_res.status_code not in (200, 201):
+            raise RuntimeError(
+                f"Failed to approve promotion: {approve_res.status_code} {approve_res.text}"
             )
 
-    # 6. Visit
-    # Check if a visit already exists for this store
-    visits_list_res = await client.get("/visits", headers=rep_headers)
-    existing_visit = None
-    if visits_list_res.status_code == 200:
-        for v in visits_list_res.json().get("items", []):
-            if v.get("store_id") == store_id:
-                existing_visit = v
-                break
+        get_promo_res = await client.get(f"/promotions/{promo_id}", headers=headers)
+        if get_promo_res.status_code == 200:
+            promo_version = get_promo_res.json().get("version", promo_version + 1)
+        else:
+            promo_version += 1
 
-    if not existing_visit:
-        visit_res = await client.post(
+    # 7. Store Visit (create or reuse)
+    visit_id: str | None = None
+    visits_res = await client.get(f"/visits?store_id={store_id}", headers=headers)
+    if visits_res.status_code == 200:
+        visits_items = visits_res.json().get("items", [])
+        if visits_items:
+            visit_id = visits_items[0]["id"]
+
+    if not visit_id:
+        visit_headers = dict(headers)
+        visit_headers["Idempotency-Key"] = f"seed-visit-{store_id}-{manifest['dated']}"
+        create_visit_res = await client.post(
             "/visits",
-            headers={**rep_headers, "Idempotency-Key": f"demo-visit-{store_code}"},
             json={
-                "store_id": store_id,
-                "notes": "Retail demo audit visit for beverage compliance.",
+                "store_id": str(store_id),
+                "notes": "Demo shelf audit visit",
             },
+            headers=visit_headers,
         )
-        if visit_res.status_code in (200, 201):
-            visit = visit_res.json()
-            visit_id = visit["id"]
+        if create_visit_res.status_code != 201:
+            raise RuntimeError(
+                f"Failed to create visit: {create_visit_res.status_code} {create_visit_res.text}"
+            )
+        visit_id = create_visit_res.json()["id"]
 
-            # Upload before and after photos if they exist
-            shelf_before = DEMO_DIR / manifest["media"]["shelf_before"]
-            shelf_after = DEMO_DIR / manifest["media"]["shelf_after"]
+    # 8. Shelf Audit Media (before and after)
+    before_media_id = await upload_demo_media(
+        client,
+        before_path,
+        kind="VISIT_BEFORE",
+        headers=headers,
+        store_id=store_id,
+        zone_id=store_config["zone_id"],
+        zone_kind=store_config["zone_kind"],
+        captured_at=f"{manifest['dated']}T09:00:00Z",
+        visit_id=visit_id,
+    )
 
-            captured_iso = datetime.now(tz=UTC).isoformat()
-            zone_code = manifest["store"]["locations"][0]["code"]
-            if shelf_before.exists():
-                await upload_demo_media(
-                    client=client,
-                    headers=rep_headers,
-                    file_bytes=shelf_before.read_bytes(),
-                    filename="shelf_before.jpg",
-                    mime_type="image/jpeg",
-                    kind="VISIT_BEFORE",
-                    store_id=store_id,
-                    visit_id=visit_id,
-                    zone_id=zone_code,
-                    zone_kind="SHELF",
-                    captured_at=captured_iso,
-                )
-            if shelf_after.exists():
-                await upload_demo_media(
-                    client=client,
-                    headers=rep_headers,
-                    file_bytes=shelf_after.read_bytes(),
-                    filename="shelf_after.jpg",
-                    mime_type="image/jpeg",
-                    kind="VISIT_AFTER",
-                    store_id=store_id,
-                    visit_id=visit_id,
-                    zone_id=zone_code,
-                    zone_kind="SHELF",
-                    captured_at=captured_iso,
-                )
+    after_media_id = await upload_demo_media(
+        client,
+        after_path,
+        kind="VISIT_AFTER",
+        headers=headers,
+        store_id=store_id,
+        zone_id=store_config["zone_id"],
+        zone_kind=store_config["zone_kind"],
+        captured_at=f"{manifest['dated']}T10:00:00Z",
+        visit_id=visit_id,
+    )
 
     return {
         "status": "SUCCESS",
         "workspace_id": str(workspace_id),
-        "store_id": store_id,
-        "product_id": product_id,
-        "sales_committed": 1,
-        "inventory_committed": 1,
+        "distributor_location_id": str(dist_loc_id),
+        "store_id": str(store_id),
+        "product_id": str(product_id),
+        "sales_import_id": str(sales_import_id),
+        "sales_committed_count": sales_committed_count,
+        "inventory_import_id": str(inv_import_id),
+        "inventory_committed_count": inv_committed_count,
+        "promotion_id": str(promo_id),
+        "promotion_version": promo_version,
+        "visit_id": str(visit_id),
+        "shelf_before_media_id": str(before_media_id),
+        "shelf_after_media_id": str(after_media_id),
     }
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    """Builds command-line argument parser for demo seeding."""
-    parser = argparse.ArgumentParser(description="StoreOps independent demo seed script")
-    parser.add_argument("--api-url", default="http://127.0.0.1:8000", help="StoreOps API URL")
-    parser.add_argument("--workspace-id", default=None, help="Target workspace UUID")
+    """Build CLI argument parser for standalone seed execution."""
+    parser = argparse.ArgumentParser(
+        description="Seed a StoreOps workspace with independent demo data.",
+    )
+    parser.add_argument(
+        "--api-url",
+        default="http://127.0.0.1:8000",
+        help="Base URL of StoreOps API service",
+    )
+    parser.add_argument(
+        "--workspace-id",
+        required=True,
+        help="Target workspace UUID to seed",
+    )
+    parser.add_argument(
+        "--token",
+        default="demo-admin",
+        help="Bearer auth token (defaults to demo-admin)",
+    )
+    parser.add_argument(
+        "--fixtures-dir",
+        default=str(DEFAULT_FIXTURES_DIR),
+        help="Custom fixtures directory containing manifest.json",
+    )
     return parser
 
 
-async def main():
+async def main() -> None:
+    """CLI execution entrypoint."""
     parser = build_cli_parser()
     args = parser.parse_args()
 
-    workspace_id = UUID(args.workspace_id) if args.workspace_id else uuid4()
-    print(f"Seeding demo data into workspace {workspace_id} via {args.api_url}...")
+    ws_id = UUID(args.workspace_id)
+    admin_headers = {
+        "Authorization": f"Bearer {args.token}",
+        "X-Workspace-Id": str(ws_id),
+    }
 
-    async with AsyncClient(base_url=args.api_url) as client:
-        summary = await seed_workspace(client, workspace_id)
-        print(f"Seed complete: {summary}")
+    async with httpx.AsyncClient(base_url=args.api_url, timeout=30.0) as client:
+        result = await seed_workspace(
+            client,
+            ws_id,
+            admin_headers,
+            fixtures_dir=Path(args.fixtures_dir),
+        )
+        print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

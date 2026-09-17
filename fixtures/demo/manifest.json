@@ -6,6 +6,11 @@
     "name": "Retail Demo Workspace",
     "currency": "USD"
   },
+  "distributor": {
+    "code": "LOC-DIST-01",
+    "name": "Regional Distribution Hub #1",
+    "type": "DISTRIBUTOR"
+  },
   "store": {
     "name": "Downtown Flagship #101",
     "code": "STORE-101",
@@ -13,50 +18,13 @@
     "region": "North",
     "format": "Supermarket",
     "timezone": "America/New_York",
-    "distributor_location_id": null,
-    "locations": [
-      {
-        "name": "Main Sales Floor Shelf A",
-        "code": "LOC-SHELF-A",
-        "kind": "SHELF",
-        "camera_zones": ["ZONE-FRONT-01"],
-        "default_facing_target": 4,
-        "capacity_units": 40,
-        "restock_threshold_units": 10,
-        "restock_target_units": 30,
-        "display_type": "GONDOLA",
-        "shelf_level": 3,
-        "priority_tier": "PRIMARY",
-        "requires_compliance": true,
-        "temperature_zone": "AMBIENT",
-        "location_barcode": "BAR-LOC-101-A"
-      }
-    ]
+    "zone_id": "ZONE-BEV-01",
+    "zone_kind": "SHELF"
   },
   "product": {
     "name": "Sparkling Spring Water 500ml",
     "sku": "BEV-WAT-001",
-    "barcode": "012345678901",
-    "category": "Beverages",
-    "brand": "AquaPure",
-    "unit_of_measure": "EACH",
-    "package_size": "500ml",
-    "case_units": 24,
-    "active": true,
-    "dimensions_cm": {
-      "width": 6.5,
-      "height": 21.0,
-      "depth": 6.5
-    },
-    "target_facings": 4,
-    "min_facings": 2,
-    "facings_spread": false,
-    "max_stock_units": 48,
-    "reorder_threshold": 12,
-    "reorder_quantity": 24,
-    "cost_price": "0.85",
-    "base_retail_price": "1.99",
-    "currency": "USD"
+    "case_units": 24
   },
   "imports": {
     "sales_csv": "sales.csv",
@@ -64,8 +32,16 @@
   },
   "policies": {
     "agreement_text": "vendor_agreement.md",
-    "vendor": "AquaPure Beverages LLC",
-    "title": "AquaPure Summer Endcap Placement Agreement"
+    "promotion_title": "AquaPure Summer Endcap Placement Agreement",
+    "rules": [
+      {
+        "sku": "BEV-WAT-001",
+        "target_facings": 4,
+        "min_facings": 2,
+        "shelf_level": 3,
+        "promo_price": "1.99"
+      }
+    ]
   },
   "media": {
     "shelf_before": "media/shelf_before.jpg",
