@@ -172,9 +172,67 @@ async def test_ac12_investigation_execution_and_constraints(
     assert get_res.status_code == 200
     inv = get_res.json()
 
-    # Constraints: actions <= 3
-    actions = inv.get("proposed_actions", [])
-    assert len(actions) <= 3, "Investigation must propose at most 3 corrective actions"
+    # Constraints: actions <= 3 and strictly bounded
+    actions = inv["actions"]
+    assert 1 <= len(actions) <= 3, "Investigation must propose at most 3 corrective actions"
+
+
+@pytest.mark.asyncio
+async def test_ac15_investigation_dismissal_and_idempotence(
+    integration_client: AsyncClient,
+    admin_a_headers: dict[str, str],
+    rep_a_headers: dict[str, str],
+):
+    """AC15: Investigation dismissal transitions to DISMISSED, replays idempotently, and blocks stale accept."""
+    setup = await _setup_visit_and_media(integration_client, admin_a_headers, rep_a_headers)
+
+    inv_res = await integration_client.post(
+        "/investigations",
+        headers={**rep_a_headers, "Idempotency-Key": str(uuid4())},
+        json={
+            "store_id": setup["store"]["id"],
+            "visit_id": setup["visit"]["id"],
+            "promotion_id": setup["promotion"]["id"],
+            "media_ids": [setup["media_id"]],
+        },
+    )
+    inv_id = inv_res.json()["resource_id"]
+    get_res = await integration_client.get(f"/investigations/{inv_id}", headers=rep_a_headers)
+    inv = get_res.json()
+
+    # 1. Dismiss investigation
+    dismiss_key = str(uuid4())
+    dismiss1 = await integration_client.post(
+        f"/investigations/{inv_id}/dismiss",
+        headers={**rep_a_headers, "Idempotency-Key": dismiss_key},
+        json={
+            "expected_version": inv["version"],
+            "reason": "Not applicable to this store format",
+        },
+    )
+    assert dismiss1.status_code == 200
+    dismissed_inv = dismiss1.json()
+    assert dismissed_inv["state"] == "DISMISSED"
+
+    # 2. Replay dismissal with exact same key -> returns cached 200
+    dismiss_replay = await integration_client.post(
+        f"/investigations/{inv_id}/dismiss",
+        headers={**rep_a_headers, "Idempotency-Key": dismiss_key},
+        json={
+            "expected_version": inv["version"],
+            "reason": "Not applicable to this store format",
+        },
+    )
+    assert dismiss_replay.status_code == 200
+
+    # 3. Attempting to accept a dismissed investigation -> 409 INVALID_STATE
+    accept_attempt = await integration_client.post(
+        f"/investigations/{inv_id}/accept",
+        headers={**rep_a_headers, "Idempotency-Key": str(uuid4())},
+        json={"expected_version": dismissed_inv["version"]},
+    )
+    assert accept_attempt.status_code == 409
+    assert accept_attempt.json()["code"] == "INVALID_STATE"
 
 
 @pytest.mark.asyncio
@@ -219,22 +277,42 @@ async def test_ac16_plan_acceptance_idempotency_and_action_claim_safety(
     )
     assert accept_replay.status_code == 200
 
-    # 3. New request with stale expected_version -> returns 409
+    # 3. New request with stale expected_version -> returns 409 VERSION_CONFLICT
     accept_stale = await integration_client.post(
         f"/investigations/{inv_id}/accept",
         headers={**rep_a_headers, "Idempotency-Key": str(uuid4())},
         json={"expected_version": inv["version"]},
     )
-    assert accept_stale.status_code in [409, 422]
+    assert accept_stale.status_code == 409
+    assert accept_stale.json()["code"] == "VERSION_CONFLICT"
 
     # 4. If actions exist, verify representative cannot mark action as VERIFIED or RESOLVED
-    if accepted_inv.get("actions"):
-        action_id = accepted_inv["actions"][0]["id"]
+    assert len(accepted_inv["actions"]) > 0
+    action_id = accepted_inv["actions"][0]["id"]
 
-        # Attempt to set VERIFIED directly -> rejected
-        illegal_update = await integration_client.patch(
-            f"/investigations/{inv_id}/actions/{action_id}",
-            headers=rep_a_headers,
-            json={"expected_version": 1, "status": "VERIFIED"},
-        )
-        assert illegal_update.status_code in [400, 422], "Representative cannot mark action VERIFIED directly"
+    # 4a. Attempt to set VERIFIED directly -> rejected by schema contract (422 VALIDATION_ERROR)
+    illegal_schema = await integration_client.patch(
+        f"/investigations/{inv_id}/actions/{action_id}",
+        headers=rep_a_headers,
+        json={"expected_version": accepted_inv["version"], "status": "VERIFIED"},
+    )
+    assert illegal_schema.status_code == 422
+    assert illegal_schema.json()["code"] == "VALIDATION_ERROR"
+
+    # 4b. Attempt to set OPEN -> rejected by service logic (422 INVALID_ACTION_STATUS)
+    illegal_service = await integration_client.patch(
+        f"/investigations/{inv_id}/actions/{action_id}",
+        headers=rep_a_headers,
+        json={"expected_version": accepted_inv["version"], "status": "OPEN"},
+    )
+    assert illegal_service.status_code == 422
+    assert illegal_service.json()["code"] == "INVALID_ACTION_STATUS"
+
+    # 4c. Representative sets CLAIMED_DONE -> succeeds
+    claim_success = await integration_client.patch(
+        f"/investigations/{inv_id}/actions/{action_id}",
+        headers=rep_a_headers,
+        json={"expected_version": accepted_inv["version"], "status": "CLAIMED_DONE"},
+    )
+    assert claim_success.status_code == 200
+    assert claim_success.json()["actions"][0]["status"] == "CLAIMED_DONE"

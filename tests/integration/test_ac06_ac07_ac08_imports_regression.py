@@ -180,12 +180,14 @@ async def test_ac07_invalid_csv_validation_errors(
     assert imp_data["error_count"] > 0
     assert len(imp_data["errors"]) > 0
 
-    # Attempting to commit an INVALID import must fail
+    # Attempting to commit an INVALID import must fail with 409 CONFLICT
     commit_res = await integration_client.post(
         f"/imports/{import_id}/commit",
         headers={**admin_a_headers, "Idempotency-Key": str(uuid4())},
+        json={"expected_version": imp_data["version"]},
     )
-    assert commit_res.status_code in [400, 409, 422], "Cannot commit an invalid import batch"
+    assert commit_res.status_code == 409
+    assert commit_res.json()["code"] == "CONFLICT"
 
 
 @pytest.mark.asyncio

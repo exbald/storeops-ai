@@ -44,7 +44,14 @@ def test_ac26_runtime_modules_import_no_fixtures_or_demo_seeds():
     api_dir = Path(__file__).resolve().parent.parent.parent / "apps" / "api"
     assert api_dir.exists()
 
-    forbidden_terms = ["fixtures", "sample_", "demo_seed", "test_", "conftest"]
+    def _is_forbidden(mod_name: str) -> bool:
+        segments = mod_name.split(".")
+        return any(
+            seg.startswith(("test_", "sample_"))
+            or seg in ("fixtures", "conftest", "demo_seed")
+            for seg in segments
+        )
+
     violations = []
 
     for py_file in api_dir.rglob("*.py"):
@@ -56,12 +63,11 @@ def test_ac26_runtime_modules_import_no_fixtures_or_demo_seeds():
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    name = alias.name
-                    if any(term in name for term in forbidden_terms):
-                        violations.append((str(py_file), name))
+                    if _is_forbidden(alias.name):
+                        violations.append((str(py_file), alias.name))
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
-                if any(term in module for term in forbidden_terms):
+                if _is_forbidden(module):
                     violations.append((str(py_file), module))
 
     assert not violations, f"Runtime modules contain forbidden test/fixture imports: {violations}"

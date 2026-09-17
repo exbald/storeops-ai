@@ -112,7 +112,8 @@ async def test_ac04_archived_store_cannot_start_visit(
             "notes": "Attempting visit on archived store",
         },
     )
-    assert visit_resp.status_code in [400, 404, 409, 422], "Starting a visit on an archived store must fail"
+    assert visit_resp.status_code == 422
+    assert visit_resp.json()["code"] == "STORE_INACTIVE"
 
 
 @pytest.mark.asyncio

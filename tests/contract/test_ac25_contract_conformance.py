@@ -41,11 +41,16 @@ async def contract_client():
         currency=py_models.Currency.SGD,
     )
     await repo.create_workspace_with_admin(ws, uid="contract-admin-uid", email="admin@contract.test")
+    from apps.api.core import auth
+    prev_repo = auth._state_repository
     set_state_repository(repo)
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client, ws_id
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            yield client, ws_id
+    finally:
+        auth._state_repository = prev_repo
 
 
 def test_ac25_openapi_contract_file_exists_and_parses():

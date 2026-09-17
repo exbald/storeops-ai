@@ -14,7 +14,6 @@ from storeops_contracts.models import Currency, Workspace
 
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
 from apps.api.adapters.state.in_memory import InMemoryStateRepository
-from apps.api.ai.gateway import DeterministicModelGateway
 from apps.api.analytics.duckdb import DuckDBAnalyticsRepository
 from apps.api.core.auth import set_state_repository
 from apps.api.main import app
@@ -52,6 +51,7 @@ from apps.api.modules.visits.dependencies import (
 )
 from apps.api.modules.visits.repository import InMemoryVisitRepository
 from apps.api.ports.clock import Clock
+from apps.api.ports.model import ModelGateway
 
 
 class IntegrationFrozenClock(Clock):
@@ -195,9 +195,26 @@ async def integration_client(
     int_policy_repo: InMemoryPolicyRepository,
     int_blob_repo: LocalFileSystemBlobRepository,
     int_analytics_repo: DuckDBAnalyticsRepository,
-    int_gateway: DeterministicModelGateway,
+    int_gateway: ModelGateway,
     frozen_clock: IntegrationFrozenClock,
 ):
+    import apps.api.modules.catalog.dependencies as c_dep
+    import apps.api.modules.imports.dependencies as i_dep
+    import apps.api.modules.policies.dependencies as p_dep
+    import apps.api.modules.verification.dependencies as v_dep
+    import apps.api.modules.visits.dependencies as vi_dep
+
+    prev_v_clock = getattr(v_dep, "_clock", None)
+    prev_v_repo = getattr(v_dep, "_verification_repository", None)
+    prev_vi_repo = getattr(vi_dep, "_visit_repository", None)
+    prev_c_repo = getattr(c_dep, "_catalog_repository", None)
+    prev_p_repo = getattr(p_dep, "_policy_repository", None)
+    prev_b_repo = getattr(c_dep, "_blob_repository", None)
+    prev_a_repo = getattr(i_dep, "_analytics_repository", None)
+    prev_m_gw = getattr(vi_dep, "_model_gateway", None)
+    prev_vm_gw = getattr(v_dep, "_model_gateway", None)
+    prev_pm_gw = getattr(p_dep, "_model_gateway", None)
+
     app.dependency_overrides[get_visit_repository] = lambda: int_visit_repo
     app.dependency_overrides[get_verification_repository] = lambda: int_verification_repo
     app.dependency_overrides[get_catalog_repository] = lambda: int_catalog_repo
@@ -238,3 +255,14 @@ async def integration_client(
         if upload_route in app.routes:
             app.routes.remove(upload_route)
         app.dependency_overrides.clear()
+        v_dep._clock = prev_v_clock
+        v_dep._verification_repository = prev_v_repo
+        vi_dep._visit_repository = prev_vi_repo
+        c_dep._catalog_repository = prev_c_repo
+        p_dep._policy_repository = prev_p_repo
+        c_dep._blob_repository = prev_b_repo
+        i_dep._analytics_repository = prev_a_repo
+        vi_dep._model_gateway = prev_m_gw
+        v_dep._model_gateway = prev_vm_gw
+        p_dep._model_gateway = prev_pm_gw
+

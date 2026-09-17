@@ -147,3 +147,95 @@ async def test_ac22_provider_timeout_permanent_failure_no_fake_success(
     assert retrieved["error"]["code"] == "MODEL_QUOTA_EXHAUSTED"
     assert "RESOURCE_EXHAUSTED" in retrieved["error"]["message"]
     assert retrieved["status"] != "SUCCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_ac33_idempotency_key_payload_mismatch_returns_409(
+    integration_client: AsyncClient,
+    admin_a_headers: dict[str, str],
+):
+    """AC33: Reusing an idempotency key with a differing payload returns 409 conflict."""
+    key = str(uuid4())
+    payload_a = {
+        "code": f"STR-IDEMP-{uuid4().hex[:6]}",
+        "name": "Store Alpha",
+        "retailer": "Retail Corp",
+        "region": "North",
+        "format": "Supermarket",
+        "timezone": "Asia/Singapore",
+        "distributor_location_id": None,
+    }
+
+    # 1. First request with payload_a succeeds
+    res_1 = await integration_client.post(
+        "/stores",
+        headers={**admin_a_headers, "Idempotency-Key": key},
+        json=payload_a,
+    )
+    assert res_1.status_code == 201
+
+    # 2. Replay with exact same payload_a returns cached 201
+    res_replay = await integration_client.post(
+        "/stores",
+        headers={**admin_a_headers, "Idempotency-Key": key},
+        json=payload_a,
+    )
+    assert res_replay.status_code == 201
+
+    # 3. Request with same key but differing payload_b -> returns 409 IDEMPOTENCY_KEY_MISMATCH
+    payload_b = {**payload_a, "name": "Conflicting Store Name"}
+    res_conflict = await integration_client.post(
+        "/stores",
+        headers={**admin_a_headers, "Idempotency-Key": key},
+        json=payload_b,
+    )
+    assert res_conflict.status_code == 409
+    assert res_conflict.json()["code"] == "IDEMPOTENCY_KEY_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_ac33_model_schema_repair_failure_ends_incomplete(
+    integration_client: AsyncClient,
+    admin_a_headers: dict[str, str],
+    rep_a_headers: dict[str, str],
+    int_state_repo: StateRepository,
+    workspace_a_id: UUID,
+):
+    """AC33: When model returns invalid JSON and 1-shot repair fails, job ends FAILED without false resolution."""
+    job_id = uuid4()
+    now = datetime.now(UTC)
+
+    # Job record reflecting failed 1-shot repair
+    job = Job(
+        id=job_id,
+        workspace_id=workspace_a_id,
+        version=1,
+        created_at=now,
+        updated_at=now,
+        type=Type2.VERIFY,
+        status=Status2.FAILED,
+        resource_id=uuid4(),
+        resource_type=ResourceType.VERIFICATION,
+        attempt=2,
+        stage="FAILED",
+        started_at=now,
+        finished_at=now,
+        error=Error(
+            code="SCHEMA_VALIDATION_FAILED",
+            message="Verification output schema repair failed: Invalid JSON syntax after 1-shot repair",
+            request_id=str(uuid4()),
+            details=[],
+        ),
+        linked_previous_job_id=None,
+        model_id="gemini-2.5-flash",
+        usage=None,
+    )
+    await int_state_repo.create_job_with_outbox(job)
+
+    # Verify job is failed and does not produce a false PASS or resolved state
+    res = await integration_client.get(f"/jobs/{job_id}", headers=rep_a_headers)
+    assert res.status_code == 200
+    retrieved = res.json()
+    assert retrieved["status"] == "FAILED"
+    assert retrieved["error"]["code"] == "SCHEMA_VALIDATION_FAILED"
+    assert retrieved["status"] != "SUCCEEDED"
