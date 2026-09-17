@@ -9,12 +9,11 @@ from apps.api.modules.catalog.dependencies import (
     get_blob_repository,
     get_catalog_repository,
 )
-from apps.api.modules.catalog.repository import CatalogRepository
 from apps.api.modules.imports.dependencies import get_analytics_repository
 from apps.api.modules.policies.dependencies import (
     get_policy_repository,
 )
-from apps.api.modules.policies.repository import PolicyRepository
+from apps.api.modules.visits.ports import VisitCatalogPort, VisitPolicyPort
 from apps.api.modules.visits.repository import (
     InMemoryVisitRepository,
     VisitRepository,
@@ -72,8 +71,8 @@ def set_clock(clk: Clock) -> None:
 
 def get_visit_service(
     visit_repo: Annotated[VisitRepository, Depends(get_visit_repository)],
-    catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
-    policy_repo: Annotated[PolicyRepository, Depends(get_policy_repository)],
+    catalog_repo: Annotated[VisitCatalogPort, Depends(get_catalog_repository)],
+    policy_repo: Annotated[VisitPolicyPort, Depends(get_policy_repository)],
     state_repo: Annotated[StateRepository, Depends(get_state_repository)],
     model_gateway: Annotated[ModelGateway, Depends(get_model_gateway)],
     clock: Annotated[Clock, Depends(get_clock)],

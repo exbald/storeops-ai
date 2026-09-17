@@ -276,9 +276,56 @@ async def test_ac16_no_issue_outcome_creates_no_action_report_and_closes_visit(
     sample_promotion_with_policy,
     sample_ready_media,
     model_gateway,
+    analytics_repo,
 ):
     headers = workspace_setup["rep_headers"]
     promo, _policy_ver, _rule = sample_promotion_with_policy
+    ws_id = workspace_setup["workspace_id"]
+    now_dt = datetime.now(UTC)
+
+    # Seed complete sales and stock data so commercial coverage is fully SUPPORTED
+    await analytics_repo.commit_import_batch(
+        workspace_id=ws_id,
+        batch_id=str(uuid4()),
+        kind="SALES",
+        import_id=uuid4(),
+        source_sha256="a" * 64,
+        rows=[
+            {
+                "store_id": sample_store.id,
+                "sku": "SKU-OK-1",
+                "business_date": "2026-08-05",
+                "units": 100,
+                "revenue": 200.0,
+                "currency": "SGD",
+            },
+            {
+                "store_id": sample_store.id,
+                "sku": "SKU-OK-1",
+                "business_date": "2026-08-10",
+                "units": 110,
+                "revenue": 220.0,
+                "currency": "SGD",
+            },
+        ],
+    )
+    await analytics_repo.commit_import_batch(
+        workspace_id=ws_id,
+        batch_id=str(uuid4()),
+        kind="INVENTORY",
+        import_id=uuid4(),
+        source_sha256="b" * 64,
+        rows=[
+            {
+                "location_id": sample_store.id,
+                "sku": "SKU-OK-1",
+                "observed_at": now_dt.isoformat(),
+                "quantity": 50,
+                "unit": "UNIT",
+                "normalized_units": 50,
+            }
+        ],
+    )
 
     res_v = await client.post(
         "/visits",
@@ -337,6 +384,7 @@ async def test_ac16_no_issue_outcome_creates_no_action_report_and_closes_visit(
     res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
     inv = res_get.json()
     assert inv["state"] == "NO_ACTION"
+    assert inv["diagnosis"]["support"] == "SUPPORTED"
     assert len(inv["actions"]) == 0
 
     # Verify visit is closed and has report attached
@@ -353,3 +401,272 @@ async def test_ac16_no_issue_outcome_creates_no_action_report_and_closes_visit(
     assert report["outcome"] == "NO_ACTION"
     assert report["investigation_id"] == inv_id
     assert report["visit_id"] == str(visit_id)
+
+
+@pytest.mark.asyncio
+async def test_ac16_no_issue_with_incomplete_data_produces_needs_work(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+    model_gateway,
+):
+    headers = workspace_setup["rep_headers"]
+    promo, _policy_ver, _rule = sample_promotion_with_policy
+
+    res_v = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Incomplete audit visit"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    visit_id = UUID(res_v.json()["id"])
+    media = await sample_ready_media(visit_id)
+
+    def no_issue_response(prompt: str):
+        import re
+
+        ev_match = re.search(
+            r"<available_evidence_ids>(.*?)</available_evidence_ids>", prompt, re.DOTALL
+        )
+        evidence_ids = []
+        if ev_match:
+            for raw_id in re.findall(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                ev_match.group(1),
+            ):
+                evidence_ids.append(UUID(raw_id))
+        eid = evidence_ids[0] if evidence_ids else uuid4()
+
+        return AnalysisProposal(
+            hypothesis="NO_ISSUE",
+            summary="Compliant facings, but no sales/stock data in analytics.",
+            claims=[
+                ProposedClaim(
+                    claim_key="c1",
+                    kind="OBSERVATION",
+                    text="Shelf facings comply with approved policy.",
+                    evidence_ids=[eid],
+                )
+            ],
+            alternatives=[],
+            actions=[],
+            unresolved_questions=[],
+        )
+
+    model_gateway.register_response(AnalysisProposal, no_issue_response)
+
+    res_inv = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(visit_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(media.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv-{uuid4()}"},
+    )
+    assert res_inv.status_code == 202
+    inv_id = res_inv.json()["resource_id"]
+
+    res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
+    inv = res_get.json()
+    # Incomplete commercial window gates NO_ISSUE to NEEDS_WORK per SEMANTICS
+    assert inv["state"] == "NEEDS_WORK"
+    assert inv["diagnosis"]["support"] == "LIMITED"
+
+    # Visit remains open
+    res_visit = await client.get(f"/visits/{visit_id}", headers=headers)
+    assert res_visit.json()["status"] == "OPEN"
+
+
+@pytest.mark.asyncio
+async def test_ac16_stale_policy_conflict_on_accept(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+    policy_repo,
+):
+    headers = workspace_setup["rep_headers"]
+    promo, policy_ver, _rule = sample_promotion_with_policy
+    ws_id = workspace_setup["workspace_id"]
+    now = datetime.now(UTC)
+
+    # 1. Start investigation with policy version 1
+    res_v = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Stale policy test"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    visit_id = UUID(res_v.json()["id"])
+    media = await sample_ready_media(visit_id)
+
+    res_inv = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(visit_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(media.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv-{uuid4()}"},
+    )
+    assert res_inv.status_code == 202
+    inv_id = res_inv.json()["resource_id"]
+
+    res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
+    inv = res_get.json()
+    assert inv["state"] == "PROPOSED"
+    ver = inv["version"]
+
+    # 2. Advance policy version for this promotion to version 2
+    from storeops_contracts.models import PolicyVersion as PVModel
+
+    new_pv = PVModel(
+        id=uuid4(),
+        promotion_id=promo.id,
+        version=2,
+        rules=policy_ver.rules,
+        catalog_product_ids=policy_ver.catalog_product_ids,
+        store_ids=policy_ver.store_ids,
+        starts_on=policy_ver.starts_on,
+        ends_on=policy_ver.ends_on,
+        approved_at=now,
+        approved_by="admin-user",
+        content_sha256="9" * 64,
+    )
+    await policy_repo.create_policy_version(ws_id, new_pv)
+    promo.approved_policy = new_pv
+    promo.version += 1
+    await policy_repo.update_promotion(ws_id, promo)
+
+    # 3. Attempt to accept investigation with stale policy
+    res_acc = await client.post(
+        f"/investigations/{inv_id}/accept",
+        json={"expected_version": ver},
+        headers={**headers, "Idempotency-Key": f"acc-{uuid4()}"},
+    )
+    assert res_acc.status_code == 409
+    assert res_acc.json()["code"] == "STALE_POLICY"
+
+
+@pytest.mark.asyncio
+async def test_ac16_version_conflict_and_invalid_action_status_on_update_action(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+):
+    headers = workspace_setup["rep_headers"]
+    promo, _policy_ver, _rule = sample_promotion_with_policy
+
+    res_v = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Action conflict test"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    visit_id = UUID(res_v.json()["id"])
+    media = await sample_ready_media(visit_id)
+
+    res_inv = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(visit_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(media.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv-{uuid4()}"},
+    )
+    inv_id = res_inv.json()["resource_id"]
+    res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
+    inv = res_get.json()
+    ver = inv["version"]
+    act_id = inv["actions"][0]["id"]
+
+    # Accept plan
+    res_acc = await client.post(
+        f"/investigations/{inv_id}/accept",
+        json={"expected_version": ver},
+        headers={**headers, "Idempotency-Key": f"acc-{uuid4()}"},
+    )
+    assert res_acc.status_code == 200
+    inv_acc = res_acc.json()
+    accepted_ver = inv_acc["version"]
+
+    # 1. VERSION_CONFLICT on update_action with wrong version
+    res_conflict = await client.patch(
+        f"/investigations/{inv_id}/actions/{act_id}",
+        json={"expected_version": 999, "status": "CLAIMED_DONE"},
+        headers=headers,
+    )
+    assert res_conflict.status_code == 409
+    assert res_conflict.json()["code"] == "VERSION_CONFLICT"
+
+    # 2. INVALID_ACTION_STATUS on update_action with status other than CLAIMED_DONE
+    res_bad_status = await client.patch(
+        f"/investigations/{inv_id}/actions/{act_id}",
+        json={"expected_version": accepted_ver, "status": "OPEN"},
+        headers=headers,
+    )
+    assert res_bad_status.status_code == 422
+    assert res_bad_status.json()["code"] == "INVALID_ACTION_STATUS"
+
+
+@pytest.mark.asyncio
+async def test_ac16_invalid_state_on_dismiss_terminal(
+    client,
+    workspace_setup,
+    sample_store,
+    sample_promotion_with_policy,
+    sample_ready_media,
+):
+    headers = workspace_setup["rep_headers"]
+    promo, _policy_ver, _rule = sample_promotion_with_policy
+
+    res_v = await client.post(
+        "/visits",
+        json={"store_id": str(sample_store.id), "notes": "Dismiss terminal test"},
+        headers={**headers, "Idempotency-Key": f"key-{uuid4()}"},
+    )
+    visit_id = UUID(res_v.json()["id"])
+    media = await sample_ready_media(visit_id)
+
+    res_inv = await client.post(
+        "/investigations",
+        json={
+            "store_id": str(sample_store.id),
+            "visit_id": str(visit_id),
+            "promotion_id": str(promo.id),
+            "media_ids": [str(media.id)],
+        },
+        headers={**headers, "Idempotency-Key": f"inv-{uuid4()}"},
+    )
+    inv_id = res_inv.json()["resource_id"]
+    res_get = await client.get(f"/investigations/{inv_id}", headers=headers)
+    inv = res_get.json()
+    ver = inv["version"]
+
+    # First dismissal succeeds
+    res_dis = await client.post(
+        f"/investigations/{inv_id}/dismiss",
+        json={"expected_version": ver, "reason": "First dismissal"},
+        headers={**headers, "Idempotency-Key": f"dis-{uuid4()}"},
+    )
+    assert res_dis.status_code == 200
+    assert res_dis.json()["state"] == "DISMISSED"
+
+    # Second dismissal on already terminal investigation returns 409 INVALID_STATE
+    res_dis_2 = await client.post(
+        f"/investigations/{inv_id}/dismiss",
+        json={
+            "expected_version": res_dis.json()["version"],
+            "reason": "Second dismissal",
+        },
+        headers={**headers, "Idempotency-Key": f"dis2-{uuid4()}"},
+    )
+    assert res_dis_2.status_code == 409
+    assert res_dis_2.json()["code"] == "INVALID_STATE"

@@ -1,7 +1,9 @@
 import asyncio
 import hashlib
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from storeops_contracts.models import (
@@ -46,6 +48,7 @@ from storeops_contracts.models import (
     VisitUpdate,
 )
 
+from apps.api.ai.extract import calculate_metrics_from_sales_context
 from apps.api.ai.gateway import ModelSchemaError
 from apps.api.ai.investigator import (
     CallBudgetExceededError,
@@ -56,8 +59,7 @@ from apps.api.ai.investigator import (
 )
 from apps.api.ai.schemas import AnalysisProposal
 from apps.api.core.errors import ApiError
-from apps.api.modules.catalog.repository import CatalogRepository
-from apps.api.modules.policies.repository import PolicyRepository
+from apps.api.modules.visits.ports import VisitCatalogPort, VisitPolicyPort
 from apps.api.modules.visits.repository import VisitRepository
 from apps.api.ports.analytics import AnalyticsRepository
 from apps.api.ports.blob import BlobRepository
@@ -72,8 +74,8 @@ class VisitService:
     def __init__(
         self,
         visit_repo: VisitRepository,
-        catalog_repo: CatalogRepository,
-        policy_repo: PolicyRepository,
+        catalog_repo: VisitCatalogPort,
+        policy_repo: VisitPolicyPort,
         state_repo: StateRepository,
         model_gateway: ModelGateway,
         clock: Clock,
@@ -411,8 +413,8 @@ class VisitService:
                 source_id=mid,
                 source_sha256=(
                     (media.normalized_sha256 or media.original_sha256)
-                    if media
-                    else "a" * 64
+                    if media and (media.normalized_sha256 or media.original_sha256)
+                    else hashlib.sha256(f"media:{mid}".encode()).hexdigest()
                 ),
                 locator=Locator(
                     media_id=mid,
@@ -498,12 +500,63 @@ class VisitService:
         # Set up ReadOnlyToolRegistry
         registry = ReadOnlyToolRegistry(workspace_id=str(workspace_id))
 
-        # Default minimal tool responses
+        # Retrieve real batch information if analytics repository is available
+        sales_batches: list[dict[str, Any]] = []
+        stock_batches: list[dict[str, Any]] = []
+        sales_facts: list[dict[str, Any]] = []
+        stock_facts: list[dict[str, Any]] = []
+
+        if self.analytics_repo:
+            try:
+                sales_batches = await self.analytics_repo.get_active_batches(
+                    workspace_id, kind="SALES"
+                )
+                stock_batches = await self.analytics_repo.get_active_batches(
+                    workspace_id, kind="INVENTORY"
+                )
+                sales_facts = await self.analytics_repo.get_sales_window(
+                    workspace_id=workspace_id,
+                    store_id=inv.store_id,
+                    start_date="2026-08-01",
+                    end_date="2026-08-14",
+                )
+                stock_facts = await self.analytics_repo.get_latest_inventory(
+                    workspace_id=workspace_id,
+                    location_ids=[inv.store_id],
+                    as_of_time=now.isoformat(),
+                )
+            except (KeyError, ValueError, RuntimeError, OSError) as e:
+                logger.warning("Error fetching analytics data for investigation: %s", e)
+
+        sales_sha = (
+            sales_batches[0]["source_sha256"]
+            if sales_batches
+            else hashlib.sha256(f"sales:{inv.snapshot_id}".encode()).hexdigest()
+        )
+        sales_batch_ids: list[UUID] = []
+        for b in sales_batches:
+            try:
+                sales_batch_ids.append(UUID(str(b["batch_id"])))
+            except ValueError:
+                pass
+
+        stock_sha = (
+            stock_batches[0]["source_sha256"]
+            if stock_batches
+            else hashlib.sha256(f"stock:{inv.snapshot_id}".encode()).hexdigest()
+        )
+        stock_batch_ids: list[UUID] = []
+        for b in stock_batches:
+            try:
+                stock_batch_ids.append(UUID(str(b["batch_id"])))
+            except ValueError:
+                pass
+
         from storeops_contracts.models import (
             Currency,
             Freshness2,
             LocationType,
-            PeerSales,
+            MissingItem,
             Status8,
             StockItem,
             ToolEnvelope,
@@ -520,14 +573,14 @@ class VisitService:
             freshness=Freshness1.CURRENT,
             summary="Committed weekly sales rows snapshot",
             source_id=inv.snapshot_id,
-            source_sha256="b" * 64,
+            source_sha256=sales_sha,
             locator=Locator(
                 media_id=None,
                 page=None,
                 quote=None,
                 box=None,
                 row_ids=[],
-                batch_ids=[],
+                batch_ids=sales_batch_ids,
                 query_template_id="sales_window_v1",
                 query_job_id=None,
                 query_parameters={"store_id": str(inv.store_id)},
@@ -546,14 +599,14 @@ class VisitService:
             freshness=Freshness1.CURRENT,
             summary="Committed latest inventory snapshot",
             source_id=inv.snapshot_id,
-            source_sha256="c" * 64,
+            source_sha256=stock_sha,
             locator=Locator(
                 media_id=None,
                 page=None,
                 quote=None,
                 box=None,
                 row_ids=[],
-                batch_ids=[],
+                batch_ids=stock_batch_ids,
                 query_template_id="latest_stock_v1",
                 query_job_id=None,
                 query_parameters={"store_id": str(inv.store_id)},
@@ -568,65 +621,120 @@ class VisitService:
             else [uuid4()]
         )
 
+        prior_facts = [
+            f for f in sales_facts if str(f.get("business_date", "")) <= "2026-08-07"
+        ]
+        current_facts = [
+            f for f in sales_facts if str(f.get("business_date", "")) > "2026-08-07"
+        ]
+
+        if prior_facts and current_facts:
+            sales_complete = True
+            sales_gaps = []
+            prior_units = sum(int(f["units"]) for f in prior_facts)
+            current_units = sum(int(f["units"]) for f in current_facts)
+            prior_revenue = str(sum(Decimal(str(f["revenue"])) for f in prior_facts))
+            current_revenue = str(
+                sum(Decimal(str(f["revenue"])) for f in current_facts)
+            )
+            sales_currency = (
+                Currency(sales_facts[0]["currency"])
+                if sales_facts
+                and sales_facts[0].get("currency") in Currency.__members__
+                else Currency.SGD
+            )
+        else:
+            sales_complete = False
+            sales_gaps = ["Incomplete commercial window: missing sales facts"]
+            prior_units = (
+                sum(int(f["units"]) for f in prior_facts) if prior_facts else None
+            )
+            current_units = (
+                sum(int(f["units"]) for f in current_facts) if current_facts else None
+            )
+            prior_revenue = (
+                str(sum(Decimal(str(f["revenue"])) for f in prior_facts))
+                if prior_facts
+                else None
+            )
+            current_revenue = (
+                str(sum(Decimal(str(f["revenue"])) for f in current_facts))
+                if current_facts
+                else None
+            )
+            sales_currency = Currency.SGD
+
+        sales_context = SalesContext(
+            snapshot_id=inv.snapshot_id,
+            store_id=inv.store_id,
+            catalog_product_ids=cat_pids,
+            prior_start=date(2026, 8, 1),
+            prior_end=date(2026, 8, 7),
+            current_start=date(2026, 8, 8),
+            current_end=date(2026, 8, 14),
+            complete=sales_complete,
+            prior_units=prior_units,
+            current_units=current_units,
+            prior_revenue=prior_revenue,
+            current_revenue=current_revenue,
+            currency=sales_currency,
+            eligible_peers=[],
+            gaps=sales_gaps,
+            evidence_ids=[sales_ev_id],
+        )
+
+        inv.metrics = calculate_metrics_from_sales_context(
+            sales_context, currency=sales_currency, as_of_date=now.date()
+        )
+
+        stock_items: list[StockItem] = []
+        for sf in stock_facts:
+            raw_obs = sf.get("observed_at")
+            if isinstance(raw_obs, str):
+                obs_dt = datetime.fromisoformat(raw_obs)
+            elif isinstance(raw_obs, datetime):
+                obs_dt = raw_obs
+            else:
+                obs_dt = now
+
+            if obs_dt.tzinfo is None:
+                obs_dt = obs_dt.replace(tzinfo=UTC)
+
+            stock_items.append(
+                StockItem(
+                    product_id=cat_pids[0],
+                    location_id=sf["location_id"],
+                    location_type=LocationType.BACKROOM,
+                    quantity=int(sf["quantity"]),
+                    unit=Unit.UNIT,
+                    units_normalized=int(sf["normalized_units"]),
+                    observed_at=obs_dt,
+                    freshness=Freshness2.CURRENT,
+                    evidence_id=stock_ev_id,
+                )
+            )
+
+        missing_items = (
+            []
+            if stock_items
+            else [
+                MissingItem(product_id=pid, location_type=LocationType.BACKROOM)
+                for pid in cat_pids
+            ]
+        )
+
+        stock_context = StockContext(
+            snapshot_id=inv.snapshot_id,
+            store_id=inv.store_id,
+            items=stock_items,
+            missing=missing_items,
+        )
+
         registry.register(
             "get_sales_context",
             lambda inp: ToolEnvelope(
                 status=Status8.OK,
-                data=SalesContext(
-                    snapshot_id=inv.snapshot_id,
-                    store_id=inv.store_id,
-                    catalog_product_ids=cat_pids,
-                    prior_start=date(2026, 8, 1),
-                    prior_end=date(2026, 8, 7),
-                    current_start=date(2026, 8, 8),
-                    current_end=date(2026, 8, 14),
-                    complete=True,
-                    prior_units=100,
-                    current_units=110,
-                    prior_revenue="100.00",
-                    current_revenue="110.00",
-                    currency=Currency.SGD,
-                    eligible_peers=[
-                        PeerSales(
-                            store_id=uuid4(),
-                            complete=True,
-                            prior_units=80,
-                            current_units=90,
-                            retailer="FairPrice",
-                            region="SG-Central",
-                            format="SUPERMARKET",
-                            currency=Currency.SGD,
-                            promotion_id=promo.id,
-                            evidence_ids=[sales_ev_id],
-                        ),
-                        PeerSales(
-                            store_id=uuid4(),
-                            complete=True,
-                            prior_units=85,
-                            current_units=95,
-                            retailer="FairPrice",
-                            region="SG-Central",
-                            format="SUPERMARKET",
-                            currency=Currency.SGD,
-                            promotion_id=promo.id,
-                            evidence_ids=[sales_ev_id],
-                        ),
-                        PeerSales(
-                            store_id=uuid4(),
-                            complete=True,
-                            prior_units=90,
-                            current_units=100,
-                            retailer="FairPrice",
-                            region="SG-Central",
-                            format="SUPERMARKET",
-                            currency=Currency.SGD,
-                            promotion_id=promo.id,
-                            evidence_ids=[sales_ev_id],
-                        ),
-                    ],
-                    gaps=[],
-                    evidence_ids=[sales_ev_id],
-                ).model_dump(mode="json"),
+                data=sales_context.model_dump(mode="json"),
                 evidence_ids=[sales_ev_id],
                 as_of=now,
                 error=None,
@@ -637,24 +745,7 @@ class VisitService:
             "get_inventory_context",
             lambda inp: ToolEnvelope(
                 status=Status8.OK,
-                data=StockContext(
-                    snapshot_id=inv.snapshot_id,
-                    store_id=inv.store_id,
-                    items=[
-                        StockItem(
-                            product_id=cat_pids[0],
-                            location_id=uuid4(),
-                            location_type=LocationType.BACKROOM,
-                            quantity=20,
-                            unit=Unit.UNIT,
-                            units_normalized=20,
-                            observed_at=now,
-                            freshness=Freshness2.CURRENT,
-                            evidence_id=stock_ev_id,
-                        )
-                    ],
-                    missing=[],
-                ).model_dump(mode="json"),
+                data=stock_context.model_dump(mode="json"),
                 evidence_ids=[stock_ev_id],
                 as_of=now,
                 error=None,
@@ -708,8 +799,6 @@ class VisitService:
             GroundednessValidationError,
             CallBudgetExceededError,
             ModelSchemaError,
-            RuntimeError,
-            ValueError,
         ) as err:
             logger.warning(f"Investigation execution produced gap: {err}")
             incomplete_reason = str(err)
@@ -762,36 +851,67 @@ class VisitService:
         ]
 
         actions: list[Action] = []
-        for act in proposal.actions:
-            act_id = uuid4()
-            mapped_claim_ids = [
-                claim_key_to_id[ck] for ck in act.claim_keys if ck in claim_key_to_id
-            ]
-            if not mapped_claim_ids and claims:
-                mapped_claim_ids = [claims[0].id]
-            actions.append(
-                Action(
-                    id=act_id,
-                    kind=Kind7(act.kind),
-                    rule_ids=act.rule_ids,
-                    claim_ids=mapped_claim_ids,
-                    evidence_ids=act.evidence_ids,
-                    instruction=act.instruction,
-                    required_zone_ids=[
-                        RequiredZoneId(root=z) for z in act.required_zone_ids
-                    ],
-                    status=Status6.OPEN,
-                )
-            )
+        action_mapping_error: str | None = None
 
-        # Enforce maximum of 3 actions per spec and schema
-        actions = actions[:3]
+        if len(proposal.actions) > 3:
+            action_mapping_error = (
+                f"Model proposed {len(proposal.actions)} actions; maximum allowed is 3"
+            )
+        else:
+            for act in proposal.actions:
+                act_id = uuid4()
+                # Check for unmapped claim keys - fail closed if unmapped
+                missing_claim_keys = [
+                    ck for ck in act.claim_keys if ck not in claim_key_to_id
+                ]
+                if missing_claim_keys:
+                    action_mapping_error = (
+                        f"Action references unmapped claim keys: {missing_claim_keys}"
+                    )
+                    break
+                mapped_claim_ids = [claim_key_to_id[ck] for ck in act.claim_keys]
+                actions.append(
+                    Action(
+                        id=act_id,
+                        kind=Kind7(act.kind),
+                        rule_ids=act.rule_ids,
+                        claim_ids=mapped_claim_ids,
+                        evidence_ids=act.evidence_ids,
+                        instruction=act.instruction,
+                        required_zone_ids=[
+                            RequiredZoneId(root=z) for z in act.required_zone_ids
+                        ],
+                        status=Status6.OPEN,
+                    )
+                )
+
+        if action_mapping_error:
+            logger.warning(f"Action validation failed: {action_mapping_error}")
+            inv.state = State.INCOMPLETE
+            inv.updated_at = self.clock.now_utc()
+            await self.visit_repo.update_investigation(workspace_id, inv)
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="COMPLETED",
+                    status="SUCCEEDED",
+                    summary=f"Investigation completed with state INCOMPLETE: {action_mapping_error}",
+                )
+            return
+
+        # Determine support label (contracts/SEMANTICS.md:52-74)
+        is_supported = (
+            sales_complete
+            and len(sales_gaps) == 0
+            and len(stock_items) > 0
+            and len(proposal.unresolved_questions) == 0
+        )
+        diagnosis_support = Support.SUPPORTED if is_supported else Support.LIMITED
 
         diagnosis = Diagnosis(
             hypothesis=Hypothesis(proposal.hypothesis),
-            support=Support.SUPPORTED
-            if proposal.hypothesis == "NO_ISSUE"
-            else Support.LIMITED,
+            support=diagnosis_support,
             summary=proposal.summary,
             claims=claims,
             alternatives=alternatives,
@@ -805,7 +925,11 @@ class VisitService:
         # NO_ACTION rule (contracts/SEMANTICS.md:56-60, AC16):
         # A fully supported NO_ISSUE with zero actions closes the visit as NO_ACTION
         # and creates a NO_ACTION report without a claim of verified corrective work.
-        if proposal.hypothesis == "NO_ISSUE" and len(actions) == 0:
+        if (
+            proposal.hypothesis == "NO_ISSUE"
+            and len(actions) == 0
+            and diagnosis_support == Support.SUPPORTED
+        ):
             inv.state = State.NO_ACTION
             report = Report(
                 id=uuid4(),
@@ -827,6 +951,12 @@ class VisitService:
             visit.version += 1
             visit.updated_at = self.clock.now_utc()
             await self.visit_repo.update_visit(workspace_id, visit)
+        elif (
+            proposal.hypothesis == "NO_ISSUE" and diagnosis_support != Support.SUPPORTED
+        ):
+            # Cannot close as NO_ACTION if evidence is incomplete or limited
+            inv.state = State.NEEDS_WORK
+            inv.plan_revision = 1
         else:
             inv.state = State.PROPOSED
             inv.plan_revision = 1
@@ -1015,6 +1145,12 @@ class VisitService:
             )
 
         # AC16: Rep checkboxes set CLAIMED_DONE; they never resolve or verify
+        if payload.status.value != "CLAIMED_DONE":
+            raise ApiError(
+                status_code=422,
+                code="INVALID_ACTION_STATUS",
+                message=f"Rep action update cannot transition to {payload.status.value}; only CLAIMED_DONE is permitted",
+            )
         target_action.status = Status6(payload.status.value)
 
         now = self.clock.now_utc()

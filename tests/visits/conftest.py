@@ -27,6 +27,7 @@ from storeops_contracts.models import (
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
 from apps.api.adapters.state.in_memory import InMemoryStateRepository
 from apps.api.ai.gateway import DeterministicModelGateway
+from apps.api.analytics.duckdb import DuckDBAnalyticsRepository
 from apps.api.core.auth import set_state_repository
 from apps.api.main import app
 from apps.api.modules.catalog.dependencies import (
@@ -35,6 +36,7 @@ from apps.api.modules.catalog.dependencies import (
 )
 from apps.api.modules.catalog.repository import InMemoryCatalogRepository
 from apps.api.modules.catalog.router import router as catalog_router
+from apps.api.modules.imports.dependencies import set_analytics_repository
 from apps.api.modules.policies.dependencies import (
     set_model_gateway as set_policy_model_gateway,
 )
@@ -93,6 +95,13 @@ def policy_repo():
 def visit_repo():
     repo = InMemoryVisitRepository()
     set_visit_repository(repo)
+    return repo
+
+
+@pytest.fixture
+def analytics_repo(tmp_path):
+    repo = DuckDBAnalyticsRepository(db_path=str(tmp_path / "analytics.duckdb"))
+    set_analytics_repository(repo)
     return repo
 
 
@@ -229,6 +238,7 @@ async def client(
     visit_repo,
     blob_repo,
     model_gateway,
+    analytics_repo,
 ):
     transport = ASGITransport(app=app)
     async with AsyncClient(

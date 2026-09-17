@@ -145,5 +145,8 @@ async def test_ac13_missing_sales_and_stale_stock_produces_gaps_and_check_stock(
     inv = res_get.json()
     assert inv["state"] == "PROPOSED"
     assert inv["diagnosis"]["hypothesis"] == "SUPPLY_CONSTRAINT"
+    assert inv["diagnosis"]["support"] == "LIMITED"
+    assert inv["metrics"]["sales_delta"] is None
+    assert "MISSING_PRIOR_WINDOW" in inv["metrics"]["null_reasons"]
     assert len(inv["actions"]) == 1
     assert inv["actions"][0]["kind"] == "CHECK_STOCK"
