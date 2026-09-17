@@ -52,8 +52,11 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
             from google.cloud import bigquery  # type: ignore
 
             self._client = bigquery.Client(project=self.project_id)
+        except (ImportError, RuntimeError, ValueError) as exc:
+            logger.info("BigQuery client initialization skipped: %s", exc)
+            self._client = None
         except Exception as exc:  # noqa: BLE001
-            logger.debug("BigQuery client initialization failed or skipped: %s", exc)
+            logger.warning("Unexpected error during BigQuery client initialization: %s", exc)
             self._client = None
 
     def _get_table_id(self, table_name: str) -> str:
@@ -357,7 +360,7 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         if kind:
             query += " AND kind = @kind"
             query_params.append(bigquery.ScalarQueryParameter("kind", "STRING", kind))
-        query += " ORDER BY committed_at DESC"
+        query += " ORDER BY committed_at DESC, batch_id DESC"
 
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         query_job = self._client.query(query, job_config=job_config)

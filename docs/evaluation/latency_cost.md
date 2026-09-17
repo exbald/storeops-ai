@@ -53,6 +53,9 @@ StoreOps enforces pinned model and prompt configurations to ensure reproducible 
 * **Estimated Cost per Verification**:
   * **Direct Gemini Cost**: **~$0.0003** (well within $0.15 cap)
 
+> [!NOTE]
+> **Analytical Model vs Empirical Telemetry**: The cost and token projections above represent architectural pricing models calculated using official Gemini rate cards ($0.075 / 1M prompt tokens, $0.30 / 1M candidate tokens) and prompt sizing. They are theoretical models, not live billing measurements. Per `AGENTS.md`, live model evaluation gates (G3/G5/G6) remain explicitly `[BLOCKED]` pending cloud credentials and are not claimed as empirically passed.
+
 ---
 
 ## 3. Operational Reliability & Resilience
@@ -61,3 +64,4 @@ StoreOps enforces pinned model and prompt configurations to ensure reproducible 
 1. **Excluded from Timing**: Failed requests (e.g. 429 quota exhaustion or network dropouts) are tracked separately and do not mask failure rates by skewing timing averages.
 2. **Exponential Backoff**: Transient provider errors trigger up to 3 retries with jittered exponential backoff before the job is marked `FAILED` with non-retryable reason.
 3. **Fail-Closed Verification**: Any ambiguity in image clarity, occlusion, or missing evidence defaults to `outcome: UNKNOWN` or `outcome: FAIL`, preventing unverified resolution of noncompliant shelf states.
+

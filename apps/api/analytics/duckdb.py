@@ -249,7 +249,7 @@ class DuckDBAnalyticsRepository(AnalyticsRepository):
             if kind:
                 query += " AND kind = ?"
                 params.append(kind)
-            query += " ORDER BY committed_at DESC"
+            query += " ORDER BY committed_at DESC, batch_id DESC"
             cursor = self._con.execute(query, params)
             results = []
             for row in cursor.fetchall():

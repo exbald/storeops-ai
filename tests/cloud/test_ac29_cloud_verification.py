@@ -88,6 +88,7 @@ async def test_ac29_outbox_recovery_and_restart():
     assert target_entry["payload"]["correlation_id"] == "test-corr-123"
 
     # 3. Worker recovers outbox item using the real drain_outbox worker function
+    # Only marks dispatched upon successful execution
     dispatched_count = await drain_outbox(state_repo, runner)
     assert dispatched_count == 1
     assert target_entry["dispatched"] is True
@@ -99,6 +100,78 @@ async def test_ac29_outbox_recovery_and_restart():
     # 5. Idempotent re-run on subsequent worker restart/loop dispatches 0 items
     re_run_count = await drain_outbox(state_repo, runner)
     assert re_run_count == 0
+
+    # 6. Verify fail-safe: failed job execution leaves outbox item undispatched for retry
+    failed_job_id = uuid4()
+    failed_job = Job(
+        id=failed_job_id,
+        workspace_id=workspace_id,
+        version=1,
+        created_at=now,
+        updated_at=now,
+        type=Type2.POLICY_EXTRACT,
+        status=JobStatus.QUEUED,
+        resource_id=uuid4(),
+        resource_type=ResourceType.PROMOTION,
+        attempt=0,
+        stage="QUEUED",
+        started_at=None,
+        finished_at=None,
+        error=None,
+        linked_previous_job_id=None,
+        model_id="gemini-2.5-flash",
+        usage=None,
+    )
+
+    async def _failing_handler(j, g):
+        raise RuntimeError("Simulated crash during job execution")
+
+    runner.register_handler("POLICY_EXTRACT", _failing_handler)
+
+    await state_repo.create_job_with_outbox(failed_job)
+    failed_entry = next((e for e in state_repo.outbox if e["job_id"] == failed_job_id), None)
+    assert failed_entry is not None
+
+    # Execution fails due to exception -> drain_outbox returns 0 and does NOT mark dispatched
+    failed_drain = await drain_outbox(state_repo, runner)
+    assert failed_drain == 0
+    assert failed_entry["dispatched"] is False
+
+
+@pytest.mark.asyncio
+async def test_ac29_firestore_outbox_drain_path():
+    """AC29: drain_outbox queries and updates Firestore outbox collection in CLOUD profile."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from apps.api.worker import drain_outbox
+
+    mock_doc = MagicMock()
+    mock_doc.to_dict.return_value = {
+        "job_id": str(uuid4()),
+        "workspace_id": str(uuid4()),
+        "dispatched": False,
+        "created_at": "2026-09-17T12:00:00Z",
+    }
+    mock_doc.reference.update = AsyncMock()
+
+    async def _async_stream():
+        yield mock_doc
+
+    mock_collection = MagicMock()
+    mock_query = MagicMock()
+    mock_query.order_by.return_value.stream = _async_stream
+    mock_collection.where.return_value = mock_query
+
+    mock_firestore_repo = MagicMock()
+    del mock_firestore_repo.outbox  # Firestore repo does not have in-memory outbox list
+    mock_firestore_repo.db.collection.return_value = mock_collection
+
+    mock_runner = MagicMock()
+    mock_runner.execute_job = AsyncMock(return_value=True)
+
+    dispatched = await drain_outbox(mock_firestore_repo, mock_runner)
+    assert dispatched == 1
+    mock_doc.reference.update.assert_awaited_once_with({"dispatched": True})
 
 
 def test_ac29_no_secrets_in_deployment_configs():
