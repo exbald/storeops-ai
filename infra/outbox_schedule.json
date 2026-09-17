@@ -1,0 +1,23 @@
+{
+  "name": "storeops-outbox-drain",
+  "description": "Scheduled 1-minute heartbeat and outbox dispatcher (targets /health pending foundation /outbox/drain route integration)",
+  "schedule": "* * * * *",
+  "timeZone": "Etc/UTC",
+  "httpTarget": {
+    "httpMethod": "GET",
+    "uri": "https://${API_URL}/health",
+    "headers": {
+      "User-Agent": "StoreOps-CloudScheduler/1.0"
+    },
+    "oidcToken": {
+      "serviceAccountEmail": "storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com",
+      "audience": "https://${API_URL}"
+    }
+  },
+  "retryConfig": {
+    "retryCount": 2,
+    "maxRetryDuration": "60s",
+    "minBackoffDuration": "5s",
+    "maxBackoffDuration": "20s"
+  }
+}

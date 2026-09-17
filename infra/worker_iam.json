@@ -1,0 +1,14 @@
+{
+  "description": "IAM policy for private Cloud Run worker service",
+  "service": "storeops-worker",
+  "bindings": [
+    {
+      "role": "roles/run.invoker",
+      "members": [
+        "serviceAccount:storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+  "authentication": "REQUIRED"
+}
