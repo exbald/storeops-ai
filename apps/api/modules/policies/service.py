@@ -184,7 +184,7 @@ class PolicyService:
             extraction_gaps=[],
             approved_policy=None,
         )
-        return await self.repo.create_promotion(promo)
+        return await self.repo.create_promotion(workspace_id, promo)
 
     async def update_promotion(
         self, workspace_id: UUID, promotion_id: UUID, payload: PromotionUpdate
@@ -220,19 +220,22 @@ class PolicyService:
                     )
             promo.store_ids = payload.store_ids
 
-        if payload.agreement_media_id is not None:
-            media = await self.catalog_repo.get_media(
-                workspace_id, payload.agreement_media_id
-            )
-            if not media:
-                raise ValidationError(
-                    f"Agreement media {payload.agreement_media_id} not found"
+        if "agreement_media_id" in payload.model_fields_set:
+            if payload.agreement_media_id is not None:
+                media = await self.catalog_repo.get_media(
+                    workspace_id, payload.agreement_media_id
                 )
-            if media.status != Status1.READY:
-                raise ValidationError(
-                    f"Agreement media {payload.agreement_media_id} is not READY (status: {media.status})"
-                )
-            promo.agreement_media_id = payload.agreement_media_id
+                if not media:
+                    raise ValidationError(
+                        f"Agreement media {payload.agreement_media_id} not found"
+                    )
+                if media.status != Status1.READY:
+                    raise ValidationError(
+                        f"Agreement media {payload.agreement_media_id} is not READY (status: {media.status})"
+                    )
+                promo.agreement_media_id = payload.agreement_media_id
+            else:
+                promo.agreement_media_id = None
 
         if payload.archived is not None:
             promo.archived = payload.archived
@@ -240,7 +243,7 @@ class PolicyService:
         promo.version += 1
         promo.draft_revision += 1
         promo.updated_at = self.clock.now_utc()
-        return await self.repo.update_promotion(promo)
+        return await self.repo.update_promotion(workspace_id, promo)
 
     async def extract_policy(
         self,
@@ -279,9 +282,16 @@ class PolicyService:
         except (FileNotFoundError, OSError):
             raise ValidationError("Agreement PDF content not found in storage")
 
-        # Read active catalog products
-        products, _ = await self.catalog_repo.list_products(workspace_id, limit=1000)
-        active_product_ids = [p.id for p in products if p.active]
+        # Read active catalog products with pagination
+        active_product_ids: list[UUID] = []
+        prod_cursor = None
+        while True:
+            products, prod_cursor = await self.catalog_repo.list_products(
+                workspace_id, cursor=prod_cursor, limit=100
+            )
+            active_product_ids.extend([p.id for p in products if p.active])
+            if not prod_cursor:
+                break
 
         now = self.clock.now_utc()
         job_id = uuid4()
@@ -296,8 +306,8 @@ class PolicyService:
             resource_id=promo.id,
             resource_type=ResourceType.PROMOTION,
             attempt=0,
-            stage="EXTRACTING",
-            started_at=now,
+            stage="QUEUED",
+            started_at=None,
             finished_at=None,
             error=None,
             linked_previous_job_id=None,
@@ -307,48 +317,117 @@ class PolicyService:
         await self.state_repo.create_job_with_outbox(job)
 
         # Call extraction gateway
-        extraction = await extract_merchandising_policy(
-            gateway=self.model_gateway,
-            pdf_bytes=pdf_bytes,
-            media_id=media.id,
-            catalog_product_ids=active_product_ids,
-            store_ids=promo.store_ids,
-        )
+        try:
+            extraction = await extract_merchandising_policy(
+                gateway=self.model_gateway,
+                pdf_bytes=pdf_bytes,
+                media_id=media.id,
+                catalog_product_ids=active_product_ids,
+                store_ids=promo.store_ids,
+            )
+        except Exception as exc:
+            gen = await self.state_repo.acquire_job_lease(
+                job.id, worker_id="policy-extractor"
+            )
+            if gen is not None:
+                await self.state_repo.update_job_stage(
+                    job_id=job.id,
+                    generation=gen,
+                    stage="FAILED",
+                    status="FAILED",
+                    summary=f"Extraction failed: {exc}",
+                )
+            raise
 
-        # Map rules
+        # Map rules per contracts/SEMANTICS.md:46-47:
+        # Incomplete proposals with unresolved fields remain extraction gaps, not invalid Rule DTOs.
         extracted_rules: list[Rule] = []
+        proposal_gaps: list[ExtractionGap] = []
         for er in extraction.rules:
             rule_kind = Kind5(er.kind)
-            zk = (
-                ZoneKind(er.zone_kind)
-                if er.zone_kind is not None
-                else (
-                    ZoneKind.SHELF
-                    if rule_kind in (Kind5.MIN_FACINGS, Kind5.REQUIRED_PRODUCT)
-                    else ZoneKind.DISPLAY
-                )
-            )
+            zk = ZoneKind(er.zone_kind) if er.zone_kind is not None else None
 
-            rule = Rule(
-                rule_id=uuid4(),
-                kind=rule_kind,
-                zone_id=er.zone_id
-                or ("zone-shelf" if zk == ZoneKind.SHELF else "zone-display"),
-                zone_kind=zk,
-                product_id=er.product_id,
-                min_facings=er.min_facings,
-                source=PolicySource(
-                    kind=Kind4.DOCUMENT,
-                    media_id=media.id,
-                    page=er.source_page,
-                    quote=er.source_quote,
-                    reviewer_note=None,
-                ),
-            )
-            extracted_rules.append(rule)
+            is_valid = True
+            gap_reason = ""
+
+            if not er.zone_id:
+                is_valid = False
+                gap_reason = "Missing zone_id"
+            elif (
+                not er.source_quote
+                or not er.source_quote.strip()
+                or not (1 <= er.source_page <= 10)
+            ):
+                is_valid = False
+                gap_reason = "Invalid source citation bounds"
+            elif rule_kind == Kind5.MIN_FACINGS:
+                if zk != ZoneKind.SHELF:
+                    is_valid = False
+                    gap_reason = "MIN_FACINGS must be in SHELF zone"
+                elif er.min_facings is None or er.min_facings <= 0:
+                    is_valid = False
+                    gap_reason = "MIN_FACINGS min_facings must be > 0"
+                elif (
+                    er.product_id is not None
+                    and er.product_id not in active_product_ids
+                ):
+                    is_valid = False
+                    gap_reason = (
+                        f"MIN_FACINGS references unknown product {er.product_id}"
+                    )
+            elif rule_kind == Kind5.REQUIRED_PRODUCT:
+                if zk != ZoneKind.SHELF:
+                    is_valid = False
+                    gap_reason = "REQUIRED_PRODUCT must be in SHELF zone"
+                elif er.product_id is None:
+                    is_valid = False
+                    gap_reason = "REQUIRED_PRODUCT requires product_id"
+                elif er.product_id not in active_product_ids:
+                    is_valid = False
+                    gap_reason = (
+                        f"REQUIRED_PRODUCT references unknown product {er.product_id}"
+                    )
+                elif er.min_facings is not None:
+                    is_valid = False
+                    gap_reason = "REQUIRED_PRODUCT must not specify min_facings"
+            elif rule_kind == Kind5.REQUIRED_DISPLAY:
+                if zk != ZoneKind.DISPLAY:
+                    is_valid = False
+                    gap_reason = "REQUIRED_DISPLAY must be in DISPLAY zone"
+                elif er.product_id is not None:
+                    is_valid = False
+                    gap_reason = "REQUIRED_DISPLAY must not specify product_id"
+                elif er.min_facings is not None:
+                    is_valid = False
+                    gap_reason = "REQUIRED_DISPLAY must not specify min_facings"
+
+            if not is_valid:
+                proposal_gaps.append(
+                    ExtractionGap(
+                        root=f"Rule proposal gap ({gap_reason}): {er.source_quote[:200]}"
+                    )
+                )
+            else:
+                rule = Rule(
+                    rule_id=uuid4(),
+                    kind=rule_kind,
+                    zone_id=er.zone_id,
+                    zone_kind=zk,
+                    product_id=er.product_id,
+                    min_facings=er.min_facings,
+                    source=PolicySource(
+                        kind=Kind4.DOCUMENT,
+                        media_id=media.id,
+                        page=er.source_page,
+                        quote=er.source_quote,
+                        reviewer_note=None,
+                    ),
+                )
+                extracted_rules.append(rule)
 
         # Map gaps
         gaps: list[ExtractionGap] = [ExtractionGap(root=gap) for gap in extraction.gaps]
+        gaps.extend(proposal_gaps)
 
         # Update promotion draft (NO policy becomes approved automatically!)
         promo.extracted_rules = extracted_rules
@@ -356,7 +435,7 @@ class PolicyService:
         promo.draft_revision += 1
         promo.version += 1
         promo.updated_at = self.clock.now_utc()
-        await self.repo.update_promotion(promo)
+        await self.repo.update_promotion(workspace_id, promo)
 
         # Update Job to SUCCEEDED
         gen = await self.state_repo.acquire_job_lease(
@@ -474,9 +553,24 @@ class PolicyService:
 
             # Source predicates
             if r.source.kind == Kind4.DOCUMENT:
-                if r.source.media_id is None:
+                if not promo.agreement_media_id:
                     raise ValidationError(
-                        f"Rule {r.rule_id}: DOCUMENT source requires non-null media_id"
+                        f"Rule {r.rule_id}: Promotion does not have an attached agreement media"
+                    )
+                if r.source.media_id != promo.agreement_media_id:
+                    raise ValidationError(
+                        f"Rule {r.rule_id}: DOCUMENT source media_id {r.source.media_id} does not match promotion agreement {promo.agreement_media_id}"
+                    )
+                agreement_media = await self.catalog_repo.get_media(
+                    workspace_id, r.source.media_id
+                )
+                if not agreement_media:
+                    raise ValidationError(
+                        f"Rule {r.rule_id}: DOCUMENT source media {r.source.media_id} not found"
+                    )
+                if agreement_media.status != Status1.READY:
+                    raise ValidationError(
+                        f"Rule {r.rule_id}: DOCUMENT source media {r.source.media_id} is not in READY status"
                     )
                 if r.source.page is None or r.source.page < 1 or r.source.page > 10:
                     raise ValidationError(
@@ -528,13 +622,15 @@ class PolicyService:
             approved_by=user_uid,
             content_sha256=content_sha256,
         )
-        created_version = await self.repo.create_policy_version(policy_version)
+        created_version = await self.repo.create_policy_version(
+            workspace_id, policy_version
+        )
 
         # 5. Update promotion: points to new approved_policy, increment version
         promo.approved_policy = created_version
         promo.version += 1
         promo.updated_at = now
-        await self.repo.update_promotion(promo)
+        await self.repo.update_promotion(workspace_id, promo)
 
         return created_version
 

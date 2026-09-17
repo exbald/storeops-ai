@@ -207,3 +207,49 @@ async def test_update_promotion(client, workspace_setup, sample_store):
         headers=workspace_setup["admin_headers"],
     )
     assert stale_res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_promotion_clear_agreement_media_id(
+    client, workspace_setup, sample_store, sample_agreement_media
+):
+    headers_admin = {
+        **workspace_setup["admin_headers"],
+        "Idempotency-Key": "promo-clear-agreement-create",
+    }
+    today = datetime.now(tz=UTC).date()
+    payload = {
+        "name": "Promo with Agreement",
+        "starts_on": str(today),
+        "ends_on": str(today + timedelta(days=14)),
+        "store_ids": [str(sample_store.id)],
+        "agreement_media_id": str(sample_agreement_media.id),
+    }
+    created = await client.post("/promotions", json=payload, headers=headers_admin)
+    assert created.status_code == 201
+    promo_id = created.json()["id"]
+    version = created.json()["version"]
+    assert created.json()["agreement_media_id"] == str(sample_agreement_media.id)
+
+    # Clear agreement_media_id by passing None explicitly
+    clear_payload = {
+        "expected_version": version,
+        "agreement_media_id": None,
+    }
+    patch_res = await client.patch(
+        f"/promotions/{promo_id}",
+        json=clear_payload,
+        headers=workspace_setup["admin_headers"],
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["agreement_media_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_promotion_foreign_id_not_found(client, workspace_setup):
+    foreign_id = str(uuid4())
+    res = await client.get(
+        f"/promotions/{foreign_id}",
+        headers=workspace_setup["rep_headers"],
+    )
+    assert res.status_code == 404

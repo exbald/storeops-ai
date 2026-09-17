@@ -22,7 +22,7 @@ class PolicyRepository(Protocol):
     ) -> tuple[list[Promotion], str | None]: ...
 
     async def create_policy_version(
-        self, policy_version: PolicyVersion
+        self, workspace_id: UUID, policy_version: PolicyVersion
     ) -> PolicyVersion: ...
 
     async def get_policy_version(
@@ -49,10 +49,11 @@ class InMemoryPolicyRepository(PolicyRepository):
         self.policy_versions: dict[tuple[UUID, UUID, int], PolicyVersion] = {}
         self.policy_versions_by_id: dict[tuple[UUID, UUID], PolicyVersion] = {}
 
-    async def create_promotion(self, promotion: Promotion) -> Promotion:
+    async def create_promotion(
+        self, workspace_id: UUID, promotion: Promotion
+    ) -> Promotion:
         async with self._lock:
-            key = (promotion.workspace_id, promotion.id)
-            self.promotions[key] = promotion
+            self.promotions[(workspace_id, promotion.id)] = promotion
             return promotion
 
     async def get_promotion(
@@ -61,10 +62,11 @@ class InMemoryPolicyRepository(PolicyRepository):
         async with self._lock:
             return self.promotions.get((workspace_id, promotion_id))
 
-    async def update_promotion(self, promotion: Promotion) -> Promotion:
+    async def update_promotion(
+        self, workspace_id: UUID, promotion: Promotion
+    ) -> Promotion:
         async with self._lock:
-            key = (promotion.workspace_id, promotion.id)
-            self.promotions[key] = promotion
+            self.promotions[(workspace_id, promotion.id)] = promotion
             return promotion
 
     async def list_promotions(
@@ -77,7 +79,8 @@ class InMemoryPolicyRepository(PolicyRepository):
             promos = [
                 p for (ws_id, _), p in self.promotions.items() if ws_id == workspace_id
             ]
-            promos.sort(key=lambda p: (p.created_at, p.id), reverse=True)
+            # sort by created_at desc
+            promos.sort(key=lambda p: p.created_at, reverse=True)
 
             start_idx = 0
             if cursor:
@@ -94,20 +97,9 @@ class InMemoryPolicyRepository(PolicyRepository):
             return sliced, next_cursor
 
     async def create_policy_version(
-        self, policy_version: PolicyVersion
+        self, workspace_id: UUID, policy_version: PolicyVersion
     ) -> PolicyVersion:
         async with self._lock:
-            promo = None
-            for (ws_id, pid), p in self.promotions.items():
-                if pid == policy_version.promotion_id:
-                    promo = p
-                    break
-            workspace_id = (
-                promo.workspace_id
-                if promo
-                else UUID("00000000-0000-0000-0000-000000000000")
-            )
-
             key = (workspace_id, policy_version.promotion_id, policy_version.version)
             self.policy_versions[key] = policy_version
             self.policy_versions_by_id[(workspace_id, policy_version.id)] = (

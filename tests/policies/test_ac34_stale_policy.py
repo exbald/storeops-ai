@@ -1,11 +1,8 @@
-"""Acceptance test AC34: Policy replacement, archival, and historical preservation.
+"""Acceptance test AC34 (Policy side only): Policy replacement, archival, and historical preservation.
 
-Given an accepted plan whose approved policy is replaced or archived,
-When accept or verify its stale version,
-Then:
-- Return 409 STALE_POLICY and require a new investigation.
-- No obsolete plan closes current work.
-- Existing resolved reports remain historical and readable.
+Note: Full AC34 acceptance (returning 409 STALE_POLICY on accept or verify of stale policy version)
+is evaluated in T07/T09 visit investigation and verification pipelines. This module covers the
+policy domain's version replacement, historical retention, and archival blocking invariants.
 """
 
 from datetime import UTC, datetime, timedelta
