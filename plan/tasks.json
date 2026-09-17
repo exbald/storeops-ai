@@ -635,7 +635,7 @@
     {
       "id": "T12",
       "title": "Run cloud parity and live model acceptance",
-      "status": "planned",
+      "status": "integrated",
       "optional": false,
       "depends_on": [
         "T10",
