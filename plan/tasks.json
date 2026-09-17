@@ -681,7 +681,7 @@
     {
       "id": "T13",
       "title": "Optional independent demo seed and replay suite",
-      "status": "planned",
+      "status": "integrated",
       "optional": true,
       "depends_on": [
         "T10"
