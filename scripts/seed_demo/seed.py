@@ -1,8 +1,13 @@
 """Autonomous demo seed script for StoreOps.
 
 Seeds an independent demonstration workspace with standard catalog, distributor,
-sales, inventory, promotional policies, visit, and shelf audit media using only
-standard HTTP client operations (AC30).
+sales, inventory, promotional policies (manual rules), visit, and shelf audit
+media using only standard HTTP client operations (AC30).
+
+Note:
+When running CLI against a live server, direct HTTP PUT to upload_url relies on
+the underlying blob storage provider supporting PUT uploads (e.g., GCS signed
+URLs or local media upload endpoint).
 """
 
 from __future__ import annotations
@@ -31,7 +36,11 @@ async def upload_demo_media(
     captured_at: str | None = None,
     visit_id: str | None = None,
 ) -> str:
-    """Upload a demo media artifact via standard upload-url and complete flow."""
+    """Upload a demo media artifact via standard upload-url and complete flow.
+
+    Uses deterministic idempotency keys derived from content sha256 and media kind
+    to ensure strict idempotence across multiple invocations.
+    """
     file_bytes = file_path.read_bytes()
     sha256_hash = hashlib.sha256(file_bytes).hexdigest()
     mime_type = "text/csv" if file_path.suffix == ".csv" else "image/jpeg"
@@ -58,7 +67,7 @@ async def upload_demo_media(
     }
 
     req_headers = dict(headers)
-    req_headers["Idempotency-Key"] = f"seed-media-init-{file_path.name}-{kind}-{uuid4()}"
+    req_headers["Idempotency-Key"] = f"seed-media-init-{sha256_hash[:16]}-{kind}"
 
     init_res = await client.post("/media", json=init_payload, headers=req_headers)
     if init_res.status_code != 201:
@@ -67,12 +76,22 @@ async def upload_demo_media(
         )
 
     data = init_res.json()
-    media_id = data["media"]["id"]
+    media_obj = data["media"]
+    media_id = media_obj["id"]
+
+    # If already completed via prior idempotent run, return existing media
+    if media_obj.get("status") == "READY":
+        return media_id
+
     upload_url = data["upload_url"]
 
-    # Parse target path for ASGI test client compatibility
+    # For ASGI test client compatibility where upload_url host may differ from test transport host,
+    # preserve relative path with full query string; otherwise preserve complete upload_url
     parsed = urlparse(upload_url)
-    upload_target = parsed.path if parsed.path else upload_url
+    if client.base_url.host in ("testserver", "localhost", "127.0.0.1") and parsed.netloc != client.base_url.netloc:
+        upload_target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    else:
+        upload_target = upload_url
 
     put_res = await client.put(upload_target, content=file_bytes)
     if put_res.status_code not in (200, 201):
@@ -82,7 +101,7 @@ async def upload_demo_media(
 
     complete_res = await client.post(
         f"/media/{media_id}/complete",
-        headers={**req_headers, "Idempotency-Key": f"seed-media-complete-{media_id}-{uuid4()}"},
+        headers={**req_headers, "Idempotency-Key": f"seed-media-complete-{sha256_hash[:16]}-{kind}"},
         json={"expected_version": 1},
     )
     if complete_res.status_code not in (200, 201):
@@ -209,6 +228,8 @@ async def seed_workspace(
         product_id = create_prod_res.json()["id"]
 
     # 4. Imports: Sales CSV (upload media, create import, commit)
+    sales_bytes = sales_path.read_bytes()
+    sales_sha256 = hashlib.sha256(sales_bytes).hexdigest()
     sales_import_id: str | None = None
     sales_committed_count = 0
     imports_res = await client.get("/imports", headers=headers)
@@ -229,7 +250,7 @@ async def seed_workspace(
         )
         sales_create_res = await client.post(
             "/imports",
-            headers={**headers, "Idempotency-Key": f"seed-import-sales-{manifest['dated']}"},
+            headers={**headers, "Idempotency-Key": f"seed-import-sales-{sales_sha256[:16]}"},
             json={"kind": "SALES", "media_id": sales_media_id},
         )
         if sales_create_res.status_code != 202:
@@ -256,6 +277,8 @@ async def seed_workspace(
         sales_committed_count = verify_sales.json().get("row_count", 1)
 
     # 5. Imports: Inventory CSV (upload media, create import, commit)
+    inv_bytes = inv_path.read_bytes()
+    inv_sha256 = hashlib.sha256(inv_bytes).hexdigest()
     inv_import_id: str | None = None
     inv_committed_count = 0
     if imports_res.status_code == 200:
@@ -275,7 +298,7 @@ async def seed_workspace(
         )
         inv_create_res = await client.post(
             "/imports",
-            headers={**headers, "Idempotency-Key": f"seed-import-inv-{manifest['dated']}"},
+            headers={**headers, "Idempotency-Key": f"seed-import-inv-{inv_sha256[:16]}"},
             json={"kind": "INVENTORY", "media_id": inv_media_id},
         )
         if inv_create_res.status_code != 202:
@@ -335,19 +358,20 @@ async def seed_workspace(
         promo_id = promo_data["id"]
         promo_version = promo_data["version"]
 
+        rule_cfg = promo_config.get("rule", {})
         merch_rule = {
             "rule_id": str(uuid4()),
             "kind": "MIN_FACINGS",
             "zone_id": store_config["zone_id"],
             "zone_kind": store_config["zone_kind"],
             "product_id": str(product_id),
-            "min_facings": 2,
+            "min_facings": rule_cfg.get("min_facings", 2),
             "source": {
                 "kind": "MANUAL",
                 "media_id": None,
                 "page": None,
                 "quote": None,
-                "reviewer_note": "Demo merchandising facing rule",
+                "reviewer_note": rule_cfg.get("reviewer_note", "Demo merchandising facing rule"),
             },
         }
 

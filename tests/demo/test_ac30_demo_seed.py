@@ -4,10 +4,10 @@ Verifies:
 1. Complete isolation: Application modules under apps/ never import fixtures/demo or scripts/seed_demo.
 2. Seed script independence: scripts/seed_demo/seed.py has zero imports from apps.api.
 3. Demonstration fixtures exist, are dated, and conform to contracts.
-4. Idempotency: Double-run of seed against a workspace produces identical, non-duplicated entities.
+4. Idempotency: Double-run of seed against a workspace produces identical, non-duplicated entities (including media).
 5. Verification of all resources: Store, distributor location, product, committed imports, active promotion, visit, and media.
 6. Multi-tenant isolation: Demo data in one workspace does not leak into other workspaces.
-7. Integration gate: The application runs cleanly when fixtures/demo is absent.
+7. Integration gate: The application and services run cleanly when fixtures/demo is physically moved aside.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_ac30_seed_script_no_server_internal_imports():
 
 
 def test_ac30_demo_fixtures_existence_and_structure():
-    """AC30: Demo files, sales CSV, inventory CSV, agreements and media exist and conform to schemas."""
+    """AC30: Demo files, sales CSV, inventory CSV, and media exist and conform to schemas."""
     fixtures_dir = Path(__file__).resolve().parent.parent.parent / "fixtures" / "demo"
     manifest_path = fixtures_dir / "manifest.json"
     assert manifest_path.exists(), "manifest.json missing in fixtures/demo"
@@ -82,10 +82,6 @@ def test_ac30_demo_fixtures_existence_and_structure():
     assert inv_path.exists(), "inventory.csv missing in fixtures/demo"
     inv_header = inv_path.read_text(encoding="utf-8").splitlines()[0]
     assert inv_header == "location_code,sku,observed_at,quantity,unit"
-
-    agreement_path = fixtures_dir / "vendor_agreement.md"
-    assert agreement_path.exists(), "vendor_agreement.md missing in fixtures/demo"
-    assert "AquaPure" in agreement_path.read_text(encoding="utf-8")
 
     shelf_before = fixtures_dir / "media" / "shelf_before.jpg"
     assert shelf_before.exists(), "shelf_before.jpg missing"
@@ -128,6 +124,8 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
     assert result_run1["visit_id"] is not None
     assert result_run1["sales_import_id"] is not None
     assert result_run1["inventory_import_id"] is not None
+    assert result_run1["shelf_before_media_id"] is not None
+    assert result_run1["shelf_after_media_id"] is not None
 
     # Run 2: Second seed execution (must be idempotent)
     result_run2 = await seed_workspace(demo_client, workspace_id, admin_headers)
@@ -140,6 +138,8 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
     assert result_run2["visit_id"] == result_run1["visit_id"]
     assert result_run2["sales_import_id"] == result_run1["sales_import_id"]
     assert result_run2["inventory_import_id"] == result_run1["inventory_import_id"]
+    assert result_run2["shelf_before_media_id"] == result_run1["shelf_before_media_id"]
+    assert result_run2["shelf_after_media_id"] == result_run1["shelf_after_media_id"]
 
     # Verify entity counts across API: No duplicate records created
     stores_res = await demo_client.get("/stores", headers=admin_headers)
@@ -176,6 +176,17 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
     visits_res = await demo_client.get(f"/visits?store_id={result_run1['store_id']}", headers=admin_headers)
     assert visits_res.status_code == 200
     assert len(visits_res.json()["items"]) == 1
+
+    # Verify media stability and valid states
+    media_before = await demo_client.get(f"/media/{result_run1['shelf_before_media_id']}", headers=admin_headers)
+    assert media_before.status_code == 200
+    assert media_before.json()["status"] == "READY"
+    assert media_before.json()["kind"] == "VISIT_BEFORE"
+
+    media_after = await demo_client.get(f"/media/{result_run1['shelf_after_media_id']}", headers=admin_headers)
+    assert media_after.status_code == 200
+    assert media_after.json()["status"] == "READY"
+    assert media_after.json()["kind"] == "VISIT_AFTER"
 
 
 @pytest.mark.asyncio
@@ -273,8 +284,31 @@ def test_ac30_cli_parser():
 
 def test_ac30_integration_gate_app_runs_without_demo_fixtures():
     """T13 Integration Gate: The application and ordinary services run cleanly with fixtures/demo absent."""
-    import importlib
-    # Confirm apps.api.main can be imported and initialized without any reference to fixtures/demo
-    main_mod = importlib.import_module("apps.api.main")
-    assert hasattr(main_mod, "app")
-    assert main_mod.app is not None
+    import shutil
+    import tempfile
+
+    fixtures_dir = Path(__file__).resolve().parent.parent.parent / "fixtures" / "demo"
+    assert fixtures_dir.exists(), "fixtures/demo should exist prior to test"
+
+    temp_backup = Path(tempfile.mkdtemp(prefix="demo_fixtures_bak_"))
+    backup_target = temp_backup / "demo"
+
+    # Move fixtures/demo physically aside
+    shutil.move(str(fixtures_dir), str(backup_target))
+    try:
+        assert not fixtures_dir.exists(), "fixtures/demo must be absent during check"
+
+        # Verify application main and services import and initialize cleanly
+        import apps.api.main
+        import apps.api.modules.catalog.service
+        import apps.api.modules.imports.service
+        import apps.api.modules.policies.service
+        import apps.api.modules.verification.service
+        import apps.api.modules.visits.service
+
+        assert apps.api.main.app is not None
+    finally:
+        # Guarantee physical restoration of fixtures/demo
+        shutil.move(str(backup_target), str(fixtures_dir))
+        shutil.rmtree(temp_backup, ignore_errors=True)
+        assert fixtures_dir.exists(), "fixtures/demo must be restored after check"

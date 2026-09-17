@@ -33,10 +33,8 @@ if not any(getattr(route, "path", None) == "/media/upload/{media_id}" for route 
         from apps.api.modules.catalog.dependencies import get_blob_repository
         media_id = request.path_params["media_id"]
         raw = await request.body()
-        getter = app.dependency_overrides.get(get_blob_repository, get_blob_repository)
-        blob_repo = getter()
+        blob_repo = get_blob_repository()
         path = blob_repo._file_path(media_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
         return StarletteResponse(status_code=200)
 

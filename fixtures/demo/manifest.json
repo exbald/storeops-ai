@@ -31,17 +31,11 @@
     "inventory_csv": "inventory.csv"
   },
   "policies": {
-    "agreement_text": "vendor_agreement.md",
     "promotion_title": "AquaPure Summer Endcap Placement Agreement",
-    "rules": [
-      {
-        "sku": "BEV-WAT-001",
-        "target_facings": 4,
-        "min_facings": 2,
-        "shelf_level": 3,
-        "promo_price": "1.99"
-      }
-    ]
+    "rule": {
+      "min_facings": 2,
+      "reviewer_note": "Demo merchandising facing rule"
+    }
   },
   "media": {
     "shelf_before": "media/shelf_before.jpg",
