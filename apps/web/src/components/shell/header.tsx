@@ -116,6 +116,16 @@ export function Header() {
                 >
                   [Dev Sim: Switch to {role === "ADMIN" ? "REP" : "ADMIN"}]
                 </button>
+                <Link
+                  href="/guide"
+                  className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 border border-gray-200 bg-gray-50 hover:bg-blue-50 px-2 py-0.5 rounded transition"
+                  title="Open User Handbook"
+                >
+                  <svg className="w-3.5 h-3.5 text-blue-600" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  <span>Handbook</span>
+                </Link>
               </div>
 
               <div className="hidden sm:block text-xs text-gray-500 border-l border-gray-200 pl-4">
