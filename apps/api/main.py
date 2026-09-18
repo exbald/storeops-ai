@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from storeops_contracts.models import (
     AiMode,
@@ -64,6 +65,14 @@ app = FastAPI(
     title="StoreOps API",
     version="2.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Exception handlers

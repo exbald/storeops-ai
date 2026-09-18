@@ -61,6 +61,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<UserRole>("ADMIN");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Synchronously prime apiClient singleton so child components can fetch immediately on mount
+  if (token && !apiClient.getAuthTokenDirect()) {
+    apiClient.setAuthToken(token);
+  }
+  if (workspaceId) {
+    apiClient.setWorkspaceId(workspaceId);
+  }
+
   // Initialize or fetch /me when token is available
   useEffect(() => {
     async function loadMe() {
