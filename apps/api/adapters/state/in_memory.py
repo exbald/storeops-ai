@@ -66,6 +66,10 @@ class InMemoryStateRepository(StateRepository):
             "idempotency_records": self.idempotency_records,
         }
         self.persistence_file.write_text(json.dumps(data, indent=2))
+        try:
+            self._last_mtime = self.persistence_file.stat().st_mtime
+        except Exception:
+            pass
 
     def _load(self) -> None:
         if not self.persistence_file or not self.persistence_file.exists():
@@ -97,15 +101,28 @@ class InMemoryStateRepository(StateRepository):
                 for entry in raw.get("outbox", [])
             ]
             self.idempotency_records = raw.get("idempotency_records", {})
+            self._last_mtime = self.persistence_file.stat().st_mtime
+        except Exception:
+            pass
+
+    def _load_if_modified(self) -> None:
+        if not self.persistence_file or not self.persistence_file.exists():
+            return
+        try:
+            mtime = self.persistence_file.stat().st_mtime
+            if getattr(self, "_last_mtime", 0) < mtime:
+                self._load()
         except Exception:
             pass
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:
         async with self._lock:
+            self._load_if_modified()
             return self.workspaces.get(workspace_id)
 
     async def get_memberships_for_user(self, uid: str) -> list[Membership]:
         async with self._lock:
+            self._load_if_modified()
             results: list[Membership] = []
             for m in self.memberships:
                 if m["uid"] == uid:
@@ -120,6 +137,7 @@ class InMemoryStateRepository(StateRepository):
 
     async def get_membership(self, workspace_id: UUID, uid: str) -> Membership | None:
         async with self._lock:
+            self._load_if_modified()
             for m in self.memberships:
                 if m["workspace_id"] == workspace_id and m["uid"] == uid:
                     return Membership(
