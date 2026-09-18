@@ -54,5 +54,5 @@ async def probe_live_gemini(model_id: str | None = None) -> dict[str, Any]:
             "live_accepted": False,
         }
 
-    target_model = model_id or os.getenv("MODEL_ID", "gemini-3.6-flash")
+    target_model = model_id or os.getenv("MODEL_ID", "gemini-3.8-flash")
     return await _execute_probe(api_key=api_key, model_id=target_model)

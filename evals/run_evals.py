@@ -65,7 +65,7 @@ def verify_live_credentials() -> bool:
         from google import genai
 
         client = genai.Client(api_key=api_key)
-        target_model = os.environ.get("MODEL_ID", "gemini-3.6-flash")
+        target_model = os.environ.get("MODEL_ID", "gemini-3.8-flash")
         # Attempt minimal probe to verify key validity
         client.models.generate_content(
             model=target_model,
@@ -204,7 +204,7 @@ def run_live_evaluation(
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
-        target_model = os.environ.get("MODEL_ID", "gemini-3.6-flash")
+        target_model = os.environ.get("MODEL_ID", "gemini-3.8-flash")
         # Verify connectivity
         client.models.generate_content(
             model=target_model,
