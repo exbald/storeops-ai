@@ -48,10 +48,10 @@ class GeminiGateway:
     def __init__(
         self,
         api_key: str | None = None,
-        model_id: str = "gemini-2.5-flash",
+        model_id: str | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.model_id = model_id
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_API_KEY")
+        self.model_id = model_id or os.getenv("MODEL_ID", "gemini-3.6-flash")
         self._client: Any = None
 
     def _get_client(self) -> Any:

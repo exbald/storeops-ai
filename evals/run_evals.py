@@ -20,6 +20,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -53,7 +57,7 @@ def load_dataset() -> tuple[list[str], list[str], dict[str, Any], dict[str, Any]
 
 
 def verify_live_credentials() -> bool:
-    api_key = os.environ.get("GOOGLE_AI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_AI_API_KEY")
     if not api_key:
         return False
 
@@ -61,9 +65,10 @@ def verify_live_credentials() -> bool:
         from google import genai
 
         client = genai.Client(api_key=api_key)
+        target_model = os.environ.get("MODEL_ID", "gemini-3.6-flash")
         # Attempt minimal probe to verify key validity
         client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=target_model,
             contents="ping",
         )
         return True
@@ -185,7 +190,7 @@ def run_live_evaluation(
     repeats: int = 3,
     output_path: str | None = None,
 ) -> dict[str, Any]:
-    api_key = os.environ.get("GOOGLE_AI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_AI_API_KEY")
     if not api_key:
         print("\n" + "=" * 70, file=sys.stderr)
         print("[BLOCKED] Missing or invalid Google Gemini credentials for live evaluation gate G6.", file=sys.stderr)
@@ -199,9 +204,10 @@ def run_live_evaluation(
         from google.genai import types
 
         client = genai.Client(api_key=api_key)
+        target_model = os.environ.get("MODEL_ID", "gemini-3.6-flash")
         # Verify connectivity
         client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=target_model,
             contents="ping",
         )
     except Exception as exc:  # noqa: BLE001
@@ -254,7 +260,7 @@ def run_live_evaluation(
 
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=target_model,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.0,
