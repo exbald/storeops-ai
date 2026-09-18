@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2022"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -15,10 +19,29 @@
     "jsx": "react-jsx",
     "incremental": false,
     "paths": {
-      "@storeops/contracts": ["../../packages/contracts/dist/index.d.ts"],
-      "@storeops/contracts/*": ["../../packages/contracts/dist/*"],
-      "@/*": ["./src/*"]
-    }
+      "@storeops/contracts": [
+        "../../packages/contracts/dist/index.d.ts"
+      ],
+      "@storeops/contracts/*": [
+        "../../packages/contracts/dist/*"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["src/**/*", "test/**/*"]
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

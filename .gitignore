@@ -22,6 +22,7 @@ htmlcov/
 
 # Logs & Environment
 *.log
+.local_storage/
 .env
 .env.local
 .env.*.local
@@ -44,3 +45,6 @@ gen-lang-client*.json
 *.duckdb
 *.duckdb.wal
 scratch/
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
+apps/web/next-env.d.ts
