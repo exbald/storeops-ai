@@ -155,7 +155,7 @@ export class StoreOpsClient {
   }
 
   public setWorkspaceId(workspaceId: string | null): void {
-    this.currentWorkspaceId = workspaceId;
+    this.currentWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
   }
 
   public setAuthToken(token: string | null): void {
@@ -223,8 +223,18 @@ export class StoreOpsClient {
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
-    if (workspaceId && !path.startsWith("/me") && !path.startsWith("/health")) {
-      headers["X-Workspace-Id"] = workspaceId;
+    const effectiveWorkspaceId =
+      workspaceId ||
+      this.currentWorkspaceId ||
+      (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_WORKSPACE_ID : null) ||
+      DEFAULT_WORKSPACE_ID;
+    const isExcludedFromWorkspace =
+      path === "/me" ||
+      path.startsWith("/me/") ||
+      path === "/health" ||
+      path.startsWith("/health/");
+    if (effectiveWorkspaceId && !isExcludedFromWorkspace) {
+      headers["X-Workspace-Id"] = effectiveWorkspaceId;
     }
     // Frozen contract requires Idempotency-Key on POST requests
     if (method === "POST" && !headers["Idempotency-Key"]) {

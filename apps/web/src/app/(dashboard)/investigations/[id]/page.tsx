@@ -178,6 +178,9 @@ export default function InvestigationDetailPage() {
   const handleAfterFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !investigation) return;
+    if (investigation.workspace_id) {
+      apiClient.setWorkspaceId(investigation.workspace_id);
+    }
 
     setIsUploadingAfter(true);
     setVerifyError(null);
@@ -234,6 +237,9 @@ export default function InvestigationDetailPage() {
   const handleTriggerVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!investigation) return;
+    if (investigation.workspace_id) {
+      apiClient.setWorkspaceId(investigation.workspace_id);
+    }
 
     if (afterMedia.length === 0) {
       setVerifyError("Please upload at least one after-action shelf photo for verification.");
