@@ -79,8 +79,19 @@ async def upload_demo_media(
     media_obj = data["media"]
     media_id = media_obj["id"]
 
-    # If already completed via prior idempotent run, return existing media
-    if media_obj.get("status") == "READY":
+    # Check if media exists and is ready
+    check_res = await client.get(f"/media/{media_id}", headers=headers)
+    if check_res.status_code == 404 or media_obj.get("status") == "REJECTED":
+        req_headers["Idempotency-Key"] = f"seed-media-init-{sha256_hash[:16]}-{kind}-{uuid4().hex[:6]}"
+        init_res = await client.post("/media", json=init_payload, headers=req_headers)
+        if init_res.status_code not in (200, 201):
+            raise RuntimeError(
+                f"Failed to retry media upload for {file_path.name}: {init_res.status_code} {init_res.text}"
+            )
+        data = init_res.json()
+        media_obj = data["media"]
+        media_id = media_obj["id"]
+    elif media_obj.get("status") == "READY":
         return media_id
 
     upload_url = data["upload_url"]
@@ -88,7 +99,9 @@ async def upload_demo_media(
     # For ASGI test client compatibility where upload_url host may differ from test transport host,
     # preserve relative path with full query string; otherwise preserve complete upload_url
     parsed = urlparse(upload_url)
-    if client.base_url.host in ("testserver", "localhost", "127.0.0.1") and parsed.netloc != client.base_url.netloc:
+    if parsed.netloc in ("localhost", "127.0.0.1", "testserver", "localhost:8000") and client.base_url.netloc not in ("localhost", "127.0.0.1", "testserver", "localhost:8000"):
+        upload_target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    elif client.base_url.host in ("testserver", "localhost", "127.0.0.1") and parsed.netloc != client.base_url.netloc:
         upload_target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
     else:
         upload_target = upload_url
@@ -101,7 +114,7 @@ async def upload_demo_media(
 
     complete_res = await client.post(
         f"/media/{media_id}/complete",
-        headers={**req_headers, "Idempotency-Key": f"seed-media-complete-{sha256_hash[:16]}-{kind}"},
+        headers={**req_headers, "Idempotency-Key": f"seed-media-complete-{media_id}"},
         json={"expected_version": 1},
     )
     if complete_res.status_code not in (200, 201):
@@ -138,6 +151,7 @@ async def seed_workspace(
 
     headers = dict(admin_headers)
     headers["X-Workspace-Id"] = str(workspace_id)
+    seed_run_suffix = uuid4().hex[:6]
 
     # 1. Distributor Location (create or reuse)
     dist_config = manifest["distributor"]
@@ -151,7 +165,7 @@ async def seed_workspace(
 
     if not dist_loc_id:
         loc_headers = dict(headers)
-        loc_headers["Idempotency-Key"] = f"seed-loc-{dist_config['code']}"
+        loc_headers["Idempotency-Key"] = f"seed-loc-{dist_config['code']}-{seed_run_suffix}"
         create_loc_res = await client.post(
             "/locations",
             json={
@@ -179,7 +193,7 @@ async def seed_workspace(
 
     if not store_id:
         store_headers = dict(headers)
-        store_headers["Idempotency-Key"] = f"seed-store-{store_config['code']}"
+        store_headers["Idempotency-Key"] = f"seed-store-{store_config['code']}-{seed_run_suffix}"
         create_store_res = await client.post(
             "/stores",
             json={
@@ -211,7 +225,7 @@ async def seed_workspace(
 
     if not product_id:
         prod_headers = dict(headers)
-        prod_headers["Idempotency-Key"] = f"seed-prod-{prod_config['sku']}"
+        prod_headers["Idempotency-Key"] = f"seed-prod-{prod_config['sku']}-{seed_run_suffix}"
         create_prod_res = await client.post(
             "/products",
             json={
@@ -248,11 +262,19 @@ async def seed_workspace(
             headers=headers,
             store_id=store_id,
         )
+        sales_import_key = f"seed-import-sales-{sales_sha256[:16]}"
         sales_create_res = await client.post(
             "/imports",
-            headers={**headers, "Idempotency-Key": f"seed-import-sales-{sales_sha256[:16]}"},
+            headers={**headers, "Idempotency-Key": sales_import_key},
             json={"kind": "SALES", "media_id": sales_media_id},
         )
+        if sales_create_res.status_code != 202:
+            sales_import_key = f"seed-import-sales-{sales_sha256[:16]}-{uuid4().hex[:6]}"
+            sales_create_res = await client.post(
+                "/imports",
+                headers={**headers, "Idempotency-Key": sales_import_key},
+                json={"kind": "SALES", "media_id": sales_media_id},
+            )
         if sales_create_res.status_code != 202:
             raise RuntimeError(
                 f"Failed to stage sales import: {sales_create_res.status_code} {sales_create_res.text}"
@@ -296,11 +318,19 @@ async def seed_workspace(
             headers=headers,
             store_id=store_id,
         )
+        inv_import_key = f"seed-import-inv-{inv_sha256[:16]}"
         inv_create_res = await client.post(
             "/imports",
-            headers={**headers, "Idempotency-Key": f"seed-import-inv-{inv_sha256[:16]}"},
+            headers={**headers, "Idempotency-Key": inv_import_key},
             json={"kind": "INVENTORY", "media_id": inv_media_id},
         )
+        if inv_create_res.status_code != 202:
+            inv_import_key = f"seed-import-inv-{inv_sha256[:16]}-{uuid4().hex[:6]}"
+            inv_create_res = await client.post(
+                "/imports",
+                headers={**headers, "Idempotency-Key": inv_import_key},
+                json={"kind": "INVENTORY", "media_id": inv_media_id},
+            )
         if inv_create_res.status_code != 202:
             raise RuntimeError(
                 f"Failed to stage inventory import: {inv_create_res.status_code} {inv_create_res.text}"
@@ -338,7 +368,7 @@ async def seed_workspace(
 
     if not promo_id:
         promo_headers = dict(headers)
-        promo_headers["Idempotency-Key"] = f"seed-promo-{manifest['dated']}"
+        promo_headers["Idempotency-Key"] = f"seed-promo-{manifest['dated']}-{seed_run_suffix}"
         create_promo_res = await client.post(
             "/promotions",
             json={
@@ -408,7 +438,7 @@ async def seed_workspace(
 
     if not visit_id:
         visit_headers = dict(headers)
-        visit_headers["Idempotency-Key"] = f"seed-visit-{store_id}-{manifest['dated']}"
+        visit_headers["Idempotency-Key"] = f"seed-visit-{store_id}-{manifest['dated']}-{seed_run_suffix}"
         create_visit_res = await client.post(
             "/visits",
             json={

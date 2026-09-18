@@ -1,0 +1,15 @@
+node_modules/
+.venv/
+.next/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.duckdb
+*.duckdb.wal
+.local_storage/
+dist/
+build/
+coverage/
+.DS_Store
+*.log

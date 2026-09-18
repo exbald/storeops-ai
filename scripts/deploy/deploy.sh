@@ -60,6 +60,11 @@ API_SA="storeops-api-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 WORKER_SA="storeops-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 INVOKER_SA="storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# Load GEMINI_API_KEY from .env if present and unset
+if [ -z "${GEMINI_API_KEY:-}" ] && [ -f "${ROOT_DIR}/.env" ]; then
+    GEMINI_API_KEY="$(grep -E '^GEMINI_API_KEY=' "${ROOT_DIR}/.env" | cut -d'=' -f2- | tr -d '\"' | tr -d "'")"
+fi
+
 # Dry run mode check
 if [ "${1:-}" = "--dry-run" ]; then
     echo -e "${YELLOW}[DRY RUN MODE]${NC} Validating configuration..."
@@ -169,12 +174,12 @@ fi
 echo -e "\n${BLUE}Step 5: Verifying Firestore and applying indexes...${NC}"
 if [ -f "${ROOT_DIR}/infra/firestore.indexes.json" ]; then
     echo "Deploying Firestore composite indexes..."
-    if command -v firebase &>/dev/null; then
+    if [ -f "${SCRIPT_DIR}/deploy_firestore_indexes.py" ]; then
+        python3 "${SCRIPT_DIR}/deploy_firestore_indexes.py" "${PROJECT_ID}"
+    elif command -v firebase &>/dev/null; then
         firebase deploy --only firestore:indexes --project="${PROJECT_ID}"
     else
-        echo -e "${RED}ERROR: firebase CLI not found in PATH.${NC}"
-        echo -e "${RED}Composite indexes from infra/firestore.indexes.json are required.${NC}"
-        echo -e "Install firebase-tools or run with ALLOW_SKIP_INDEXES=1 to bypass."
+        echo -e "${RED}ERROR: Neither deploy_firestore_indexes.py nor firebase CLI found.${NC}"
         if [ "${ALLOW_SKIP_INDEXES:-0}" != "1" ]; then
             exit 1
         fi
@@ -204,7 +209,7 @@ gcloud run deploy storeops-worker \
     --ingress="internal" \
     --max-instances=3 \
     --no-allow-unauthenticated \
-    --set-env-vars="APP_ENV=${APP_ENV},DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET}" \
+    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-}" \
     --quiet
 
 # Grant Invoker SA permission to call private worker
@@ -223,12 +228,13 @@ gcloud run deploy storeops-api \
     --source="${ROOT_DIR}" \
     --command="uvicorn,apps.api.main:app,--host,0.0.0.0,--port,8000" \
     --service-account="${API_SA}" \
+    --port=8000 \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --ingress="all" \
-    --max-instances=3 \
+    --max-instances=1 \
     --allow-unauthenticated \
-    --set-env-vars="APP_ENV=${APP_ENV},DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA}" \
+    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=https://storeops-api-967137522464.asia-southeast1.run.app,MEDIA_BASE_URL=https://storeops-api-967137522464.asia-southeast1.run.app/media" \
     --quiet
 
 API_URL="$(gcloud run services describe storeops-api --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
@@ -248,7 +254,32 @@ if ! gcloud scheduler jobs describe "storeops-outbox-drain" --location="${REGION
         --time-zone="Etc/UTC"
 fi
 
+# 13. Deploy Cloud Run Web Dashboard (Next.js)
+echo -e "\n${BLUE}Step 10: Deploying Public Cloud Run Web Dashboard...${NC}"
+WEB_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/storeops-web:latest"
+echo "Building web image on Cloud Build..."
+gcloud builds submit \
+    --config="${ROOT_DIR}/infra/cloudbuild.web.yaml" \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" \
+    "${ROOT_DIR}" \
+    --quiet
+
+gcloud run deploy storeops-web \
+    --image="${WEB_IMAGE}" \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" \
+    --port=3000 \
+    --ingress="all" \
+    --max-instances=3 \
+    --allow-unauthenticated \
+    --set-env-vars="NODE_ENV=production,NEXT_PUBLIC_API_URL=${API_URL},NEXT_PUBLIC_WORKSPACE_ID=00000000-0000-0000-0000-000000000001,NEXT_PUBLIC_AUTH_TOKEN=dev-admin-token" \
+    --quiet
+
+WEB_URL="$(gcloud run services describe storeops-web --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
+
 echo -e "\n${GREEN}=== Deployment Complete ===${NC}"
+echo "Web URL:      ${WEB_URL}"
 echo "API URL:      ${API_URL}"
 echo "Worker URL:   ${WORKER_URL} (PRIVATE)"
 echo "Media Bucket: gs://${MEDIA_BUCKET}"

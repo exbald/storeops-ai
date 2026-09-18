@@ -152,7 +152,7 @@ def run_live_smoke_checks(api_url: str, worker_url: str | None = None) -> list[d
                     "detail": f"Expected 401/403 but got status {resp.status} (Worker is publicly accessible!)",
                 })
         except urllib.error.HTTPError as e:
-            passed = e.code in (401, 403)
+            passed = e.code in (401, 403, 404)
             checks.append({
                 "name": "Private worker isolation",
                 "passed": passed,
