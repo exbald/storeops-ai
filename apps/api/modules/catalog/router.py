@@ -2,7 +2,7 @@ import hashlib
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from storeops_contracts.models import (
     Location,
     LocationCreate,
@@ -447,4 +447,40 @@ async def get_media(
     service: Annotated[CatalogService, Depends(get_catalog_service)],
 ) -> Media:
     return await service.get_media(ctx.workspace_id, media_id)
+
+
+@router.put(
+    "/media/upload/{media_id}",
+    status_code=status.HTTP_200_OK,
+    tags=["Media"],
+    include_in_schema=False,
+)
+async def upload_local_media_bytes(
+    media_id: UUID,
+    request: Request,
+    blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
+) -> Response:
+    body = await request.body()
+    if hasattr(blob_repo, "base_dir"):
+        target_path = blob_repo.base_dir / f"{media_id}.bin"
+        target_path.write_bytes(body)
+        return Response(status_code=200)
+    return Response(status_code=200)
+
+
+@router.get(
+    "/media/download/{media_id}",
+    tags=["Media"],
+    include_in_schema=False,
+)
+async def download_local_media_bytes(
+    media_id: UUID,
+    blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
+) -> Response:
+    try:
+        content = await blob_repo.read_bytes(media_id)
+        return Response(content=content, media_type="application/octet-stream")
+    except FileNotFoundError:
+        return Response(status_code=404)
+
 
