@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { useAuth } from "../../../lib/auth-context";
 import { apiClient, VersionConflictError } from "../../../lib/api-client";
 import { formatOpportunityProxy } from "../../../lib/formatters";
@@ -173,7 +174,13 @@ export default function StoresPage() {
       header: "Store Name",
       render: (s) => (
         <div>
-          <div className="font-medium text-gray-900">{s.name}</div>
+          <Link
+            href={`/stores/${s.id}`}
+            className="font-medium text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5"
+          >
+            <span>{s.name}</span>
+            <span className="text-xs text-blue-400">→</span>
+          </Link>
           <div className="text-xs text-gray-500">{s.region} &bull; {s.format}</div>
         </div>
       ),
@@ -212,6 +219,11 @@ export default function StoresPage() {
       className: "text-right",
       render: (s) => (
         <div className="flex items-center justify-end gap-2">
+          <Link href={`/stores/${s.id}`}>
+            <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
+              View Store & Audits →
+            </Button>
+          </Link>
           {isAdmin && (
             <>
               <Button variant="ghost" size="sm" onClick={() => openEditModal(s)}>
@@ -268,6 +280,28 @@ export default function StoresPage() {
           </Button>
         )}
       </div>
+
+      {/* AI Operations Guidance Banner */}
+      {stores.length > 0 && (
+        <div className="rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🤖</span>
+            <div>
+              <h2 className="text-sm font-semibold text-blue-950">
+                Live AI Merchandising Audits Active
+              </h2>
+              <p className="text-xs text-blue-800 mt-0.5">
+                Select any store below (e.g. <strong>{stores[0]?.name}</strong>) to view in-progress audits, upload shelf photography, and trigger real-time Gemini vision investigations.
+              </p>
+            </div>
+          </div>
+          <Link href={`/stores/${stores[0]?.id}`} className="shrink-0">
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white font-medium">
+              Open {stores[0]?.name} →
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Global Conflict Warning Banner */}
       {conflictWarning && (

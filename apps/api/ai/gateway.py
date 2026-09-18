@@ -68,6 +68,27 @@ class GeminiGateway:
                 raise ModelGatewayError("google-genai SDK not installed.") from err
         return self._client
 
+    @staticmethod
+    def _sanitize_gemini_schema(obj: Any) -> Any:
+        """Recursively strip unsupported JSON schema keys for Gemini API compatibility."""
+        if isinstance(obj, dict):
+            unsupported_keys = {
+                "additional_properties",
+                "additionalProperties",
+                "min_items",
+                "max_items",
+                "minItems",
+                "maxItems",
+            }
+            return {
+                k: GeminiGateway._sanitize_gemini_schema(v)
+                for k, v in obj.items()
+                if k not in unsupported_keys
+            }
+        if isinstance(obj, list):
+            return [GeminiGateway._sanitize_gemini_schema(v) for v in obj]
+        return obj
+
     def _detect_image_mime(self, data: bytes) -> str:
         if data.startswith(b"\x89PNG\r\n\x1a\n"):
             return "image/png"
@@ -187,9 +208,20 @@ class GeminiGateway:
                     f"Invalid thinking_budget '{thinking_budget}', ignoring."
                 )
 
+        gemini_schema: Any = response_schema
+        if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
+            try:
+                from google.genai._transformers import t_schema
+                client = self._get_client()
+                schema_obj = t_schema(getattr(client, "_api_client", None), response_schema)
+                if schema_obj:
+                    gemini_schema = self._sanitize_gemini_schema(schema_obj.model_dump(exclude_none=True))
+            except Exception as schema_err:
+                logger.warning("Failed to sanitize pydantic schema for Gemini: %s", schema_err)
+
         config_kwargs: dict[str, Any] = {
             "response_mime_type": "application/json",
-            "response_schema": response_schema,
+            "response_schema": gemini_schema,
             "thinking_config": thinking_config,
         }
         if system_instruction:

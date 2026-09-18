@@ -24,6 +24,9 @@ export default function SetupPage() {
   const [productCount, setProductCount] = useState<number>(0);
   const [importCount, setImportCount] = useState<number>(0);
   const [policyCount, setPolicyCount] = useState<number>(0);
+  const [activeVisitId, setActiveVisitId] = useState<string | null>(null);
+  const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
+  const [activeStoreName, setActiveStoreName] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchCounts() {
@@ -41,6 +44,20 @@ export default function SetupPage() {
         setImportCount(committedImports.length);
         const approvedPromos = promosRes.items.filter((p) => p.approved_policy !== null);
         setPolicyCount(approvedPromos.length);
+
+        if (storesRes.items.length > 0) {
+          const firstStore = storesRes.items[0];
+          setActiveStoreId(firstStore.id);
+          setActiveStoreName(firstStore.name);
+          try {
+            const visitsRes = await apiClient.listVisits({ store_id: firstStore.id });
+            if (visitsRes.items.length > 0) {
+              setActiveVisitId(visitsRes.items[0].id);
+            }
+          } catch {
+            // ignore
+          }
+        }
       } catch (err) {
         console.error("Failed to load workspace setup counts:", err);
       } finally {
@@ -127,6 +144,32 @@ export default function SetupPage() {
             real store network, product catalog, sales baselines, and merchandising agreements. Field reps cannot
             conduct compliance visits until required prerequisites are established.
           </p>
+        </div>
+      )}
+
+      {/* Live AI Operations Hero Callout */}
+      {isFullySetup && (
+        <div className="rounded-xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white p-6 shadow-lg border border-blue-700/60 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Autonomous Multimodal AI Ready
+            </div>
+            <h2 className="text-xl font-bold tracking-tight text-white">
+              Ready to see StoreOps AI in action?
+            </h2>
+            <p className="text-sm text-blue-200 max-w-2xl leading-relaxed">
+              Your store network, products, sales baselines, and merchandising agreements are active.
+              Jump straight into a live Store Visit at <strong>{activeStoreName || "Downtown Flagship #101"}</strong> to experience multimodal shelf analysis, evidence-grounded diagnosis, and automated corrective action generation!
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+            <Link href={activeVisitId ? `/visits/${activeVisitId}` : activeStoreId ? `/stores/${activeStoreId}` : "/stores"}>
+              <Button size="lg" className="bg-emerald-500 hover:bg-emerald-400 text-white font-semibold shadow-lg text-sm px-6 py-3 w-full sm:w-auto">
+                🚀 Launch AI Store Audit →
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
 
