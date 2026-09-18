@@ -37,7 +37,10 @@ export default function GuidePage() {
               </Button>
             </Link>
             <Link href="/setup">
-              <Button variant="outline" className="border-blue-300/40 text-blue-100 hover:bg-blue-800/40">
+              <Button
+                variant="inverse"
+                className="backdrop-blur-sm shadow-sm"
+              >
                 Workspace Setup Checklist
               </Button>
             </Link>
