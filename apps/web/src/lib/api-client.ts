@@ -124,9 +124,13 @@ export class StoreOpsClient {
         ? config.useDoubles
         : typeof process !== "undefined" && process.env.NEXT_PUBLIC_USE_DOUBLES === "true";
 
-    this.baseUrl =
+    let rawBaseUrl =
       config.baseUrl ||
       (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_URL || "" : "");
+    if (typeof window !== "undefined" && rawBaseUrl.includes("localhost:8000")) {
+      rawBaseUrl = rawBaseUrl.replace("localhost:8000", "127.0.0.1:8000");
+    }
+    this.baseUrl = rawBaseUrl;
     const envToken =
       typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN || null : null;
     this.currentAuthToken = envToken;
@@ -227,10 +231,20 @@ export class StoreOpsClient {
       headers["Idempotency-Key"] = generateUuid();
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        ...options,
+        headers,
+      });
+    } catch (fetchErr: unknown) {
+      const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      throw new ApiRequestError(
+        503,
+        "BACKEND_CONNECTION_FAILED",
+        `Failed to connect to StoreOps backend at ${this.baseUrl}${path}: ${errMsg}`
+      );
+    }
 
     if (!response.ok) {
       let errBody: { code?: string; message?: string; details?: unknown } = {
