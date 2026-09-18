@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/catalog", label: "Catalog & Products", adminOnly: true },
   { href: "/imports", label: "CSV Imports", adminOnly: true },
   { href: "/promotions", label: "Promotions & Policy", adminOnly: true },
+  { href: "/guide", label: "User Guide", adminOnly: false },
 ];
 
 export function Nav() {
