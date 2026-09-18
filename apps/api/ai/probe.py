@@ -1,10 +1,11 @@
-"""Live provider probe for Gemini API connectivity and honest credentials verification."""
-
 import os
 import re
 from typing import Any
 
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+load_dotenv(override=True)
 
 
 def _sanitize_error(msg: str) -> str:
@@ -43,9 +44,9 @@ async def _execute_probe(
         }
 
 
-async def probe_live_gemini(model_id: str = "gemini-2.5-flash") -> dict[str, Any]:
+async def probe_live_gemini(model_id: str | None = None) -> dict[str, Any]:
     """Honest live provider probe. If credentials missing, returns blocked status without faking success."""
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_API_KEY")
     if not api_key:
         return {
             "status": "blocked",
@@ -53,4 +54,5 @@ async def probe_live_gemini(model_id: str = "gemini-2.5-flash") -> dict[str, Any
             "live_accepted": False,
         }
 
-    return await _execute_probe(api_key=api_key, model_id=model_id)
+    target_model = model_id or os.getenv("MODEL_ID", "gemini-3.6-flash")
+    return await _execute_probe(api_key=api_key, model_id=target_model)
