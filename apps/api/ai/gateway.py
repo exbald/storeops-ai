@@ -51,7 +51,7 @@ class GeminiGateway:
         model_id: str | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_API_KEY")
-        self.model_id = model_id or os.getenv("MODEL_ID", "gemini-3.6-flash")
+        self.model_id = model_id or os.getenv("MODEL_ID", "gemini-3.8-flash")
         self._client: Any = None
 
     def _get_client(self) -> Any:
