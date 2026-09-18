@@ -1,0 +1,49 @@
+FROM node:20-alpine AS base
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+
+WORKDIR /app
+
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/contracts ./packages/contracts
+COPY apps/web/package.json ./apps/web/package.json
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @storeops/contracts build
+
+COPY apps/web ./apps/web
+
+ARG NEXT_PUBLIC_API_URL="https://storeops-api-967137522464.asia-southeast1.run.app"
+ARG NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000001"
+ARG NEXT_PUBLIC_AUTH_TOKEN="dev-admin-token"
+
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_WORKSPACE_ID=${NEXT_PUBLIC_WORKSPACE_ID} \
+    NEXT_PUBLIC_AUTH_TOKEN=${NEXT_PUBLIC_AUTH_TOKEN} \
+    NODE_ENV=production
+
+RUN pnpm --filter web build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    NEXT_PUBLIC_API_URL="https://storeops-api-967137522464.asia-southeast1.run.app" \
+    NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000001" \
+    NEXT_PUBLIC_AUTH_TOKEN="dev-admin-token"
+
+COPY --from=base /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.json ./
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/packages/contracts ./packages/contracts
+COPY --from=base /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=base /app/apps/web/package.json ./apps/web/package.json
+COPY --from=base /app/apps/web/.next ./apps/web/.next
+COPY --from=base /app/apps/web/public ./apps/web/public
+
+EXPOSE 3000
+
+WORKDIR /app/apps/web
+CMD ["node_modules/.bin/next", "start", "-p", "3000"]

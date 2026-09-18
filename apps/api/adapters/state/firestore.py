@@ -11,7 +11,13 @@ from apps.api.ports.state import StateRepository, VersionConflictError
 
 class FirestoreStateRepository(StateRepository):
     def __init__(self, project_id: str | None = None) -> None:
-        self.project_id = project_id or os.getenv("FIREBASE_PROJECT_ID", "storeops-dev")
+        self.project_id = (
+            project_id
+            or os.getenv("FIREBASE_PROJECT_ID")
+            or os.getenv("GCP_PROJECT")
+            or os.getenv("STOREOPS_PROJECT_ID")
+            or "storeops-dev"
+        )
         self.db = firestore.AsyncClient(project=self.project_id)
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:

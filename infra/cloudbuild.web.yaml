@@ -1,0 +1,15 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/storeops-web:latest'
+      - '-f'
+      - 'Dockerfile.web'
+      - '.'
+images:
+  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/storeops-web:latest'
+substitutions:
+  _LOCATION: 'asia-southeast1'
+options:
+  logging: CLOUD_LOGGING_ONLY

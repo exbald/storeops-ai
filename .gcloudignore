@@ -1,0 +1,42 @@
+.gcloudignore
+.git
+.gitignore
+
+# Dependencies & Environments
+node_modules/
+.pnpm-store/
+.venv/
+env/
+venv/
+
+# Build artifacts
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# Python cache & tests
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases and storage
+*.duckdb
+*.duckdb.wal
+.local_storage/
+scratch/
+
+# Secrets & Keys (guardrail)
+.env
+.env.local
+.env.*.local
+!*.example
+*.pem
+*.key
+*credentials*.json
+*service-account*.json
+firebase-adminsdk*.json
+gen-lang-client*.json

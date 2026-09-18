@@ -1,5 +1,6 @@
 import hashlib
 import io
+import os
 import struct
 from pathlib import Path
 from uuid import UUID
@@ -17,7 +18,8 @@ class LocalFileSystemBlobRepository(BlobRepository):
     ) -> None:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.base_url = base_url.rstrip("/")
+        env_url = os.getenv("MEDIA_BASE_URL") or (f"{os.getenv('API_URL').rstrip('/')}/media" if os.getenv("API_URL") else None)
+        self.base_url = (env_url or base_url).rstrip("/")
 
     def _file_path(self, media_id: UUID) -> Path:
         return self.base_dir / f"{media_id}.bin"
