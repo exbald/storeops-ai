@@ -127,11 +127,27 @@ export class StoreOpsClient {
     this.baseUrl =
       config.baseUrl ||
       (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_URL || "" : "");
-    this.getAuthToken = config.getAuthToken || (async () => this.currentAuthToken);
+    const envToken =
+      typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN || null : null;
+    this.currentAuthToken = envToken;
+
+    this.getAuthToken =
+      config.getAuthToken ||
+      (async () =>
+        this.currentAuthToken ||
+        (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_AUTH_TOKEN || null : null));
     this._useDoubles = explicitDoubles === true;
+
+    const envWorkspace =
+      typeof process !== "undefined" ? process.env.NEXT_PUBLIC_WORKSPACE_ID || null : null;
+    this.currentWorkspaceId = envWorkspace || DEFAULT_WORKSPACE_ID;
+
     this.getWorkspaceId =
       config.getWorkspaceId ||
-      (() => this.currentWorkspaceId || (this._useDoubles ? DEFAULT_WORKSPACE_ID : null));
+      (() =>
+        this.currentWorkspaceId ||
+        (typeof process !== "undefined" ? process.env.NEXT_PUBLIC_WORKSPACE_ID || null : null) ||
+        DEFAULT_WORKSPACE_ID);
   }
 
   public setWorkspaceId(workspaceId: string | null): void {
@@ -140,6 +156,10 @@ export class StoreOpsClient {
 
   public setAuthToken(token: string | null): void {
     this.currentAuthToken = token;
+  }
+
+  public getAuthTokenDirect(): string | null {
+    return this.currentAuthToken;
   }
 
   public resetDoubles(): void {

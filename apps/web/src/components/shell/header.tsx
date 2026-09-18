@@ -54,6 +54,8 @@ export function Header() {
                 <span className="truncate max-w-[160px] font-semibold">{activeWorkspaceName}</span>
                 <svg
                   className="w-4 h-4 text-gray-400"
+                  width="16"
+                  height="16"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
