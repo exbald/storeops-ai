@@ -34,9 +34,10 @@ async def bootstrap_workspace(
     currency_str: str,
     admin_uid: str,
     admin_email: str | None = None,
+    workspace_id: UUID | None = None,
 ) -> tuple[Workspace, str]:
     now = datetime.now(UTC)
-    ws_id = uuid4()
+    ws_id = workspace_id or uuid4()
     currency = Currency(currency_str.upper())
 
     workspace = Workspace(
@@ -112,6 +113,7 @@ def main():
                 currency_str=args.currency,
                 admin_uid=args.admin_uid,
                 admin_email=args.email,
+                workspace_id=UUID(args.workspace_id) if args.workspace_id else None,
             )
         )
         print(f"Successfully bootstrapped workspace '{ws.name}' ({ws.id}) with admin '{args.admin_uid}'.")
