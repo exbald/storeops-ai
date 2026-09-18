@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     DEFAULT_AUTH_TOKEN ? MOCK_MEMBERSHIPS : []
   );
   const [workspaceId, setWorkspaceId] = useState<string | null>(
-    DEFAULT_AUTH_TOKEN ? DEFAULT_WORKSPACE_ID : null
+    DEFAULT_WORKSPACE_ID
   );
   const [role, setRole] = useState<UserRole>("ADMIN");
   const [isLoading, setIsLoading] = useState(false);
@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sync workspaceId and authToken to apiClient singleton
   useEffect(() => {
-    apiClient.setWorkspaceId(workspaceId);
+    apiClient.setWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
     apiClient.setAuthToken(token);
   }, [workspaceId, token]);
 

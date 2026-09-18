@@ -170,6 +170,9 @@ export default function VisitDetailPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !visit) return;
+    if (visit.workspace_id) {
+      apiClient.setWorkspaceId(visit.workspace_id);
+    }
 
     setIsUploading(true);
     setUploadError(null);
@@ -234,6 +237,9 @@ export default function VisitDetailPage() {
     kind: "VISIT_BEFORE" | "VISIT_AFTER" = "VISIT_BEFORE"
   ) => {
     if (!visit) return null;
+    if (visit.workspace_id) {
+      apiClient.setWorkspaceId(visit.workspace_id);
+    }
     setIsUploading(true);
     setUploadError(null);
     try {
@@ -305,6 +311,9 @@ export default function VisitDetailPage() {
       mediaToSubmit = [sample];
     }
 
+    if (visit.workspace_id) {
+      apiClient.setWorkspaceId(visit.workspace_id);
+    }
     setIsTriggeringInv(true);
     setInvError(null);
 
