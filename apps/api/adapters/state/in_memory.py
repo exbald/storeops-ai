@@ -1,5 +1,8 @@
 import asyncio
+import json
+import os
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -10,7 +13,7 @@ from apps.api.ports.state import StateRepository, VersionConflictError
 
 
 class InMemoryStateRepository(StateRepository):
-    def __init__(self) -> None:
+    def __init__(self, persistence_file: Path | str | None = None) -> None:
         self._lock = asyncio.Lock()
         self.workspaces: dict[UUID, Workspace] = {}
         # List of stored memberships: {workspace_id, uid, role, workspace_name}
@@ -20,6 +23,82 @@ class InMemoryStateRepository(StateRepository):
         self.job_leases: dict[UUID, dict[str, Any]] = {}
         self.outbox: list[dict[str, Any]] = []
         self.idempotency_records: dict[str, dict[str, Any]] = {}
+
+        if persistence_file:
+            self.persistence_file = Path(persistence_file)
+        elif os.getenv("PERSIST_LOCAL_STATE") == "1" and not os.getenv("PYTEST_CURRENT_TEST"):
+            self.persistence_file = Path(".local_storage/state.json")
+        else:
+            self.persistence_file = None
+
+        if self.persistence_file and self.persistence_file.exists():
+            self._load()
+
+    def _save(self) -> None:
+        if not self.persistence_file:
+            return
+        self.persistence_file.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "workspaces": {str(k): v.model_dump(mode="json") for k, v in self.workspaces.items()},
+            "memberships": [
+                {
+                    "workspace_id": str(m["workspace_id"]),
+                    "workspace_name": m["workspace_name"],
+                    "uid": m["uid"],
+                    "role": m["role"],
+                    "email": m.get("email"),
+                }
+                for m in self.memberships
+            ],
+            "jobs": {str(k): v.model_dump(mode="json") for k, v in self.jobs.items()},
+            "job_events": {
+                str(k): [e.model_dump(mode="json") for e in events]
+                for k, events in self.job_events.items()
+            },
+            "outbox": [
+                {
+                    **entry,
+                    "job_id": str(entry["job_id"]),
+                    "workspace_id": str(entry["workspace_id"]),
+                }
+                for entry in self.outbox
+            ],
+            "idempotency_records": self.idempotency_records,
+        }
+        self.persistence_file.write_text(json.dumps(data, indent=2))
+
+    def _load(self) -> None:
+        if not self.persistence_file or not self.persistence_file.exists():
+            return
+        try:
+            raw = json.loads(self.persistence_file.read_text())
+            for k, v in raw.get("workspaces", {}).items():
+                self.workspaces[UUID(k)] = Workspace.model_validate(v)
+            self.memberships = [
+                {
+                    "workspace_id": UUID(m["workspace_id"]),
+                    "workspace_name": m["workspace_name"],
+                    "uid": m["uid"],
+                    "role": m["role"],
+                    "email": m.get("email"),
+                }
+                for m in raw.get("memberships", [])
+            ]
+            for k, v in raw.get("jobs", {}).items():
+                self.jobs[UUID(k)] = Job.model_validate(v)
+            for k, v in raw.get("job_events", {}).items():
+                self.job_events[UUID(k)] = [JobEvent.model_validate(e) for e in v]
+            self.outbox = [
+                {
+                    **entry,
+                    "job_id": UUID(entry["job_id"]),
+                    "workspace_id": UUID(entry["workspace_id"]),
+                }
+                for entry in raw.get("outbox", [])
+            ]
+            self.idempotency_records = raw.get("idempotency_records", {})
+        except Exception:
+            pass
 
     async def get_workspace(self, workspace_id: UUID) -> Workspace | None:
         async with self._lock:
@@ -63,6 +142,7 @@ class InMemoryStateRepository(StateRepository):
                 "email": email,
             }
             self.memberships.append(membership_dict)
+            self._save()
             return Membership(
                 workspace_id=workspace.id,
                 workspace_name=workspace.name,
@@ -83,6 +163,7 @@ class InMemoryStateRepository(StateRepository):
                     m["role"] = role
                     if email:
                         m["email"] = email
+                    self._save()
                     return Membership(
                         workspace_id=workspace_id,
                         workspace_name=ws.name,
@@ -99,6 +180,7 @@ class InMemoryStateRepository(StateRepository):
                     "email": email,
                 }
             )
+            self._save()
             return Membership(
                 workspace_id=workspace_id,
                 workspace_name=ws.name,
