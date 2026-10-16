@@ -8,7 +8,7 @@ import threading
 from typing import Any
 
 import pytest
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, ServiceUnavailable
 
 FIRESTORE_MAX_DOC_BYTES = 1_048_576
 FIRESTORE_MAX_BATCH_WRITES = 500
@@ -55,9 +55,11 @@ class FakeDocRef:
         return FakeDocSnapshot(self, copy.deepcopy(self._db.docs.get(self.path)))
 
     async def set(self, data: dict[str, Any], merge: bool = False) -> None:
+        self._db.check_write()
         self._db.apply_set(self.path, data, merge)
 
     async def delete(self) -> None:
+        self._db.check_write()
         self._db.docs.pop(self.path, None)
 
 
@@ -78,6 +80,8 @@ class FakeQuery:
         return FakeQuery(self._db, self._path, (*self._filters, (field, op, value)))
 
     async def stream(self):
+        if self._db.fail_reads:
+            raise ServiceUnavailable("Fake Firestore: reads unavailable")
         self._db.queries.append((self._path, self._filters))
         for path, data in list(self._db.docs.items()):
             if path[:-1] != self._path:
@@ -103,6 +107,7 @@ class FakeBatch:
         self._ops.append(("delete", ref.path, None, False))
 
     async def commit(self) -> None:
+        self._db.check_write()
         if len(self._ops) > FIRESTORE_MAX_BATCH_WRITES:
             raise ValueError("Fake Firestore: batch exceeds 500 writes")
         self._db.commits += 1
@@ -118,6 +123,12 @@ class FakeAsyncFirestore:
         self.docs: dict[tuple[str, ...], dict[str, Any]] = {}
         self.queries: list[tuple[tuple[str, ...], tuple[tuple[str, str, Any], ...]]] = []
         self.commits = 0
+        self.fail_writes = False
+        self.fail_reads = False
+
+    def check_write(self) -> None:
+        if self.fail_writes:
+            raise ServiceUnavailable("Fake Firestore: writes unavailable")
 
     def collection(self, name: str) -> FakeCollection:
         return FakeCollection(self, (name,))

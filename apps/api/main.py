@@ -20,6 +20,7 @@ from storeops_contracts.models import (
 )
 
 from apps.api.adapters.state.firestore import FirestoreStateRepository
+from apps.api.adapters.state.firestore_persistence import FirestoreWriteThrough
 from apps.api.adapters.state.in_memory import InMemoryStateRepository
 from apps.api.core.auth import (
     UserContext,
@@ -40,15 +41,21 @@ from apps.api.core.errors import (
 )
 from apps.api.ports.identity import AuthError
 from apps.api.ports.state import StateRepository, VersionConflictError
-from apps.api.modules.catalog.dependencies import get_blob_repository
+from apps.api.modules.catalog.dependencies import (
+    get_blob_repository,
+    get_catalog_repository,
+)
 from apps.api.modules.catalog.router import router as catalog_router
 from apps.api.modules.imports.dependencies import (
     get_analytics_repository,
     get_import_repository,
 )
 from apps.api.modules.imports.router import router as imports_router
+from apps.api.modules.policies.dependencies import get_policy_repository
 from apps.api.modules.policies.router import router as policies_router
+from apps.api.modules.verification.dependencies import get_verification_repository
 from apps.api.modules.verification.router import router as verification_router
+from apps.api.modules.visits.dependencies import get_visit_repository
 from apps.api.modules.visits.router import router as visits_router
 
 
@@ -68,6 +75,16 @@ async def lifespan(app: FastAPI):
         get_blob_repository()
         get_import_repository()
         get_analytics_repository()
+    if settings.state_backend == "firestore":
+        # Fill write-through repos from Firestore before serving (single instance only)
+        for repo in (
+            get_catalog_repository(),
+            get_policy_repository(),
+            get_visit_repository(),
+            get_verification_repository(),
+        ):
+            if isinstance(repo, FirestoreWriteThrough):
+                await repo.load()
     yield
 
 
