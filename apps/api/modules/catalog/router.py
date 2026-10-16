@@ -15,6 +15,7 @@ from storeops_contracts.models import (
     ProductCreate,
     ProductList,
     ProductUpdate,
+    Status1,
     Store,
     StoreCreate,
     StoreList,
@@ -27,6 +28,7 @@ from apps.api.core.auth import (
     get_state_repository,
     require_workspace,
 )
+from apps.api.core.errors import ApiError
 from apps.api.modules.catalog.dependencies import (
     get_blob_repository,
     get_catalog_repository,
@@ -37,6 +39,9 @@ from apps.api.ports.blob import BlobRepository
 from apps.api.ports.state import StateRepository
 
 router = APIRouter()
+
+# Absolute cap for API-mediated uploads, independent of the declared byte_size.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 require_rep = require_workspace(required_role="REP")
 require_admin = require_workspace(required_role="ADMIN")
@@ -459,10 +464,43 @@ async def upload_local_media_bytes(
     media_id: UUID,
     request: Request,
     blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
+    catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
 ) -> Response:
-    body = await request.body()
+    media = await catalog_repo.get_media_by_id(media_id)
+    if media is None:
+        raise ApiError(status_code=404, code="NOT_FOUND", message="Media not found")
+    if media.status != Status1.PENDING_UPLOAD:
+        raise ApiError(
+            status_code=409,
+            code="INVALID_STATE",
+            message=f"Media is {media.status.value}; uploads are accepted only while PENDING_UPLOAD",
+        )
+    body = await _read_body_capped(request, min(media.byte_size, MAX_UPLOAD_BYTES))
     await blob_repo.store_upload(media_id, body)
     return Response(status_code=200)
+
+
+def _too_large(limit: int) -> ApiError:
+    return ApiError(
+        status_code=413,
+        code="FILE_TOO_LARGE",
+        message=f"Upload exceeds the allowed size of {limit} bytes",
+    )
+
+
+async def _read_body_capped(request: Request, limit: int) -> bytes:
+    """Read the request body, failing as soon as it exceeds limit bytes."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise _too_large(limit)
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise _too_large(limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.get(

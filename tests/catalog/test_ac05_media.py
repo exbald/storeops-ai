@@ -213,9 +213,11 @@ async def test_ac05_media_checksum_mismatch_and_rejection(client: AsyncClient, w
     upload = MediaUpload.model_validate(init_res.json())
     media_id = upload.media.id
 
-    # Upload different bytes (tampered/mismatched checksum)
-    tampered_bytes = make_test_jpeg(120, 120)
-    await client.put(str(upload.upload_url), content=tampered_bytes)
+    # Upload different bytes of the declared length (tampered/mismatched checksum);
+    # bodies larger than the declared byte_size are refused at upload time instead.
+    tampered_bytes = raw_bytes[:-1] + bytes([raw_bytes[-1] ^ 0xFF])
+    put_res = await client.put(str(upload.upload_url), content=tampered_bytes)
+    assert put_res.status_code == 200
 
     # Complete -> rejected with CHECKSUM_MISMATCH
     complete_res = await client.post(
