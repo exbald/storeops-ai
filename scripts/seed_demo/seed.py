@@ -614,7 +614,7 @@ async def main() -> None:
     }
 
     fixtures_dir = Path(args.fixtures_dir)
-    async with httpx.AsyncClient(base_url=args.api_url, timeout=180.0) as client:
+    async with httpx.AsyncClient(base_url=args.api_url, timeout=300.0) as client:
         if args.repair_if_idle is not None:
             result = await repair_if_idle(
                 client, ws_id, admin_headers, idle_hours=args.repair_if_idle, fixtures_dir=fixtures_dir
