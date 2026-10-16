@@ -1,0 +1,16 @@
+# Demo seed / idle-gated repair job. Kept out of the API image so demo fixtures never
+# ship with the application (AGENTS.md, AC30). Talks to the API over HTTP only.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="/app"
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir "httpx>=0.27,<1"
+
+COPY scripts/seed_demo ./scripts/seed_demo
+COPY fixtures/demo ./fixtures/demo
+
+ENTRYPOINT ["python", "-m", "scripts.seed_demo.seed"]
