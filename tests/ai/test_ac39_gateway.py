@@ -194,3 +194,51 @@ async def test_gemini_gateway_repair_prompt_backtick_escaping():
         repair_prompt = getattr(repair_parts[0], "text", str(repair_parts[0]))
         assert "```something```" not in repair_prompt
         assert "'''something'''" in repair_prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("budget", "expected_level", "expected_budget"),
+    [("low", "LOW", None), ("HIGH", "HIGH", None), ("1024", None, 1024)],
+)
+async def test_gemini_gateway_thinking_setting(budget, expected_level, expected_budget):
+    """Named levels map to Gemini 3 thinking_level; integers stay a token budget."""
+    gateway = GeminiGateway(api_key="test-key", model_id="gemini-3.8-flash")
+    mock_response = MagicMock()
+    mock_response.text = '{"message": "ok", "count": 1}'
+
+    with patch.object(gateway, "_invoke_api", new_callable=AsyncMock) as mock_call:
+        mock_call.return_value = mock_response
+        await gateway.generate_structured(
+            prompt="Summarize", response_schema=SimpleTarget, thinking_budget=budget
+        )
+        thinking = mock_call.call_args.kwargs["config"].thinking_config
+        level = getattr(thinking.thinking_level, "name", thinking.thinking_level)
+        assert level == expected_level
+        assert thinking.thinking_budget == expected_budget
+
+
+@pytest.mark.asyncio
+async def test_image_observation_uses_low_thinking():
+    """Shelf photo observation is perception, not reasoning; low thinking keeps it fast."""
+    from uuid import uuid4
+
+    from apps.api.ai.extract import extract_image_observations
+    from apps.api.ai.schemas import ImageObservation
+
+    gateway = DeterministicModelGateway()
+    media_id = uuid4()
+    gateway.register_response(
+        ImageObservation,
+        {
+            "media_id": str(media_id),
+            "zone_id": "ZONE-BEV-01",
+            "zone_kind": "SHELF",
+            "coverage": "FULL",
+            "occluded": False,
+            "detections": [],
+            "limitations": [],
+        },
+    )
+    await extract_image_observations(gateway, b"img", media_id, "ZONE-BEV-01", "SHELF", [])
+    assert gateway.call_history[-1]["thinking_budget"] == "low"
