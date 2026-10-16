@@ -40,7 +40,12 @@ from apps.api.core.errors import (
 )
 from apps.api.ports.identity import AuthError
 from apps.api.ports.state import StateRepository, VersionConflictError
+from apps.api.modules.catalog.dependencies import get_blob_repository
 from apps.api.modules.catalog.router import router as catalog_router
+from apps.api.modules.imports.dependencies import (
+    get_analytics_repository,
+    get_import_repository,
+)
 from apps.api.modules.imports.router import router as imports_router
 from apps.api.modules.policies.router import router as policies_router
 from apps.api.modules.verification.router import router as verification_router
@@ -58,6 +63,11 @@ async def lifespan(app: FastAPI):
         else:
             repo = InMemoryStateRepository()
         set_state_repository(repo)
+    if settings.profile.upper() == "CLOUD":
+        # Resolve persistence adapters eagerly so missing cloud config fails the boot
+        get_blob_repository()
+        get_import_repository()
+        get_analytics_repository()
     yield
 
 

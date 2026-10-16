@@ -461,10 +461,7 @@ async def upload_local_media_bytes(
     blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
 ) -> Response:
     body = await request.body()
-    if hasattr(blob_repo, "base_dir"):
-        target_path = blob_repo.base_dir / f"{media_id}.bin"
-        target_path.write_bytes(body)
-        return Response(status_code=200)
+    await blob_repo.store_upload(media_id, body)
     return Response(status_code=200)
 
 
