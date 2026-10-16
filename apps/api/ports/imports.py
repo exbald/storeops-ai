@@ -15,8 +15,11 @@ class ImportRepositoryPort(Protocol):
 
     async def get_import(self, workspace_id: UUID, import_id: UUID) -> Import | None: ...
 
-    async def get_staged_rows(self, import_id: UUID) -> list[dict[str, Any]] | None:
-        """Rows staged at validation time; None when never staged."""
+    async def get_staged_rows(
+        self, workspace_id: UUID, import_id: UUID
+    ) -> list[dict[str, Any]] | None:
+        """Rows staged at validation time; None when never staged or the import
+        does not belong to workspace_id."""
         ...
 
     async def find_committed_import(

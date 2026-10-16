@@ -60,8 +60,8 @@ async def test_save_and_get_roundtrip_scoped_by_workspace(repo, fake_firestore):
 async def test_staged_rows_none_until_staged(repo):
     rec = _import(uuid4())
     await repo.save_import(rec)
-    assert await repo.get_staged_rows(rec.id) is None
-    assert await repo.get_staged_rows(uuid4()) is None
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) is None
+    assert await repo.get_staged_rows(rec.workspace_id, uuid4()) is None
 
 
 async def test_staged_rows_roundtrip_preserves_types(repo):
@@ -80,13 +80,13 @@ async def test_staged_rows_roundtrip_preserves_types(repo):
         {"location_id": uuid4(), "sku": "X", "quantity": 2, "amount": Decimal("1.10"), "note": None},
     ]
     await repo.save_import(rec, staged_rows=rows)
-    assert await repo.get_staged_rows(rec.id) == rows
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) == rows
 
 
 async def test_empty_staged_rows_are_distinct_from_none(repo):
     rec = _import(uuid4())
     await repo.save_import(rec, staged_rows=[])
-    assert await repo.get_staged_rows(rec.id) == []
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) == []
 
 
 async def test_save_without_rows_keeps_existing_staged_rows(repo):
@@ -98,7 +98,7 @@ async def test_save_without_rows_keeps_existing_staged_rows(repo):
     await repo.save_import(updated)
 
     assert (await repo.get_import(rec.workspace_id, rec.id)).status == Status4.COMMITTED
-    assert await repo.get_staged_rows(rec.id) == rows
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) == rows
 
 
 async def test_large_staged_rows_are_chunked_under_doc_limit(repo, fake_firestore):
@@ -112,7 +112,7 @@ async def test_large_staged_rows_are_chunked_under_doc_limit(repo, fake_firestor
 
     chunk_paths = [p for p in fake_firestore.docs if p[:3] == ("imports", str(rec.id), "staged_chunks")]
     assert len(chunk_paths) > 1
-    assert await repo.get_staged_rows(rec.id) == rows
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) == rows
 
 
 async def test_restaging_replaces_previous_chunks(repo, fake_firestore):
@@ -124,7 +124,7 @@ async def test_restaging_replaces_previous_chunks(repo, fake_firestore):
 
     chunk_paths = [p for p in fake_firestore.docs if p[:3] == ("imports", str(rec.id), "staged_chunks")]
     assert len(chunk_paths) == 1
-    assert await repo.get_staged_rows(rec.id) == small
+    assert await repo.get_staged_rows(rec.workspace_id, rec.id) == small
 
 
 async def test_missing_chunk_is_an_error_not_partial_data(repo, fake_firestore):
@@ -133,7 +133,7 @@ async def test_missing_chunk_is_an_error_not_partial_data(repo, fake_firestore):
     for path in [p for p in fake_firestore.docs if "staged_chunks" in p]:
         del fake_firestore.docs[path]
     with pytest.raises(RuntimeError, match="staged"):
-        await repo.get_staged_rows(rec.id)
+        await repo.get_staged_rows(rec.workspace_id, rec.id)
 
 
 async def test_find_committed_import_matches_workspace_kind_sha_and_status(repo):
@@ -183,4 +183,20 @@ async def test_survives_new_repository_instance(fake_firestore):
 
     fresh = FirestoreImportRepository(client=fake_firestore)
     assert await fresh.get_import(ws, rec.id) == rec
-    assert await fresh.get_staged_rows(rec.id) == rows
+    assert await fresh.get_staged_rows(rec.workspace_id, rec.id) == rows
+
+
+@pytest.mark.parametrize("backend", ["firestore", "memory"])
+async def test_staged_rows_are_scoped_by_workspace(fake_firestore, backend):
+    repository = (
+        FirestoreImportRepository(client=fake_firestore)
+        if backend == "firestore"
+        else ImportRepository()
+    )
+    owner = uuid4()
+    rec = _import(owner)
+    rows = [{"sku": "A", "units": 3}]
+    await repository.save_import(rec, staged_rows=rows)
+
+    assert await repository.get_staged_rows(owner, rec.id) == rows
+    assert await repository.get_staged_rows(uuid4(), rec.id) is None

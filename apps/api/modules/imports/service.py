@@ -282,7 +282,7 @@ class ImportService:
             )
 
         # Staged rows retrieval
-        staged_rows = await self.import_repo.get_staged_rows(import_id)
+        staged_rows = await self.import_repo.get_staged_rows(workspace_id, import_id)
         if staged_rows is None:
             # Re-read and re-validate from media
             media = await self.catalog_repo.get_media(
