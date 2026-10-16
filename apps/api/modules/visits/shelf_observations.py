@@ -158,7 +158,8 @@ def build_inspect_image_handler(
                 Error1(code="INVALID_INPUT", message=str(err)[:500], retryable=False),
             )
         result = results.get(inp.media_id)
-        if result is None or result.zone_id != inp.zone_id:
+        evidence_id = evidence_by_media.get(inp.media_id)
+        if result is None or evidence_id is None or result.zone_id != inp.zone_id:
             return _error_envelope(
                 as_of,
                 Error1(
@@ -180,7 +181,7 @@ def build_inspect_image_handler(
         return ToolEnvelope(
             status=Status8.OK,
             data=result.observation.model_dump(mode="json"),
-            evidence_ids=[evidence_by_media[inp.media_id]],
+            evidence_ids=[evidence_id],
             as_of=as_of,
             error=None,
         )

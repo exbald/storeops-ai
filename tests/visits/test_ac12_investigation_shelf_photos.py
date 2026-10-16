@@ -450,3 +450,20 @@ async def test_detections_survive_into_the_tool_envelope(
     assert env.status == Status8.OK
     assert env.data["detections"][0]["product_id"] == str(sample_product.id)
     assert env.data["detections"][0]["identity"] == "CLEAR"
+
+
+def test_inspect_handler_without_evidence_mapping_returns_scope_error_not_crash():
+    """A desync between observations and evidence ids must not raise KeyError (500)."""
+    from apps.api.modules.visits.shelf_observations import (
+        ShelfObservation,
+        build_inspect_image_handler,
+    )
+
+    media_id = uuid4()
+    observed = ShelfObservation(
+        media_id=media_id, zone_id="shelf-7", zone_kind="SHELF", observation=None, error=None
+    )
+    handler = build_inspect_image_handler({media_id: observed}, {}, datetime.now(UTC))
+    env = handler({"media_id": str(media_id), "zone_id": "shelf-7", "reference_media_ids": [str(media_id)]})
+    assert env.status == Status8.ERROR
+    assert env.error.code == "MEDIA_NOT_IN_SCOPE"
