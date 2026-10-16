@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -23,6 +24,19 @@ from uuid import UUID, uuid4
 import httpx
 
 DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "fixtures" / "demo"
+
+
+MIME_TYPES = {".csv": "text/csv", ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+def media_init_key(workspace_id: str, payload: dict[str, object]) -> str:
+    """Idempotency key that changes exactly when the media-init request body changes.
+
+    The server stores keys per user and route, not per workspace, so the workspace is part
+    of the key and the body hash guards against reusing a key with a different visit.
+    """
+    body_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    return f"seed-media-init-{workspace_id}-{body_hash[:16]}"
 
 
 async def upload_demo_media(
@@ -43,7 +57,9 @@ async def upload_demo_media(
     """
     file_bytes = file_path.read_bytes()
     sha256_hash = hashlib.sha256(file_bytes).hexdigest()
-    mime_type = "text/csv" if file_path.suffix == ".csv" else "image/jpeg"
+    mime_type = MIME_TYPES.get(file_path.suffix.lower())
+    if mime_type is None:
+        raise ValueError(f"Unsupported demo media type: {file_path.name}")
 
     if kind in ("IMPORT", "AGREEMENT"):
         store_id = None
@@ -67,9 +83,12 @@ async def upload_demo_media(
     }
 
     req_headers = dict(headers)
-    req_headers["Idempotency-Key"] = f"seed-media-init-{sha256_hash[:16]}-{kind}"
+    req_headers["Idempotency-Key"] = media_init_key(headers.get("X-Workspace-Id", ""), init_payload)
 
     init_res = await client.post("/media", json=init_payload, headers=req_headers)
+    if init_res.status_code == 409 and init_res.json().get("code") == "IDEMPOTENCY_KEY_MISMATCH":
+        req_headers["Idempotency-Key"] = f"{req_headers['Idempotency-Key']}-{uuid4().hex[:6]}"
+        init_res = await client.post("/media", json=init_payload, headers=req_headers)
     if init_res.status_code != 201:
         raise RuntimeError(
             f"Failed to initiate media upload for {file_path.name}: {init_res.status_code} {init_res.text}"
@@ -82,7 +101,7 @@ async def upload_demo_media(
     # Check if media exists and is ready
     check_res = await client.get(f"/media/{media_id}", headers=headers)
     if check_res.status_code == 404 or media_obj.get("status") == "REJECTED":
-        req_headers["Idempotency-Key"] = f"seed-media-init-{sha256_hash[:16]}-{kind}-{uuid4().hex[:6]}"
+        req_headers["Idempotency-Key"] = f"{req_headers['Idempotency-Key']}-{uuid4().hex[:6]}"
         init_res = await client.post("/media", json=init_payload, headers=req_headers)
         if init_res.status_code not in (200, 201):
             raise RuntimeError(
@@ -143,9 +162,9 @@ async def seed_workspace(
     sales_path = base_dir / manifest["imports"]["sales_csv"]
     inv_path = base_dir / manifest["imports"]["inventory_csv"]
     before_path = base_dir / manifest["media"]["shelf_before"]
-    after_path = base_dir / manifest["media"]["shelf_after"]
+    agreement_path = base_dir / manifest["policies"]["agreement_pdf"]
 
-    for p in (sales_path, inv_path, before_path, after_path):
+    for p in (sales_path, inv_path, before_path, agreement_path):
         if not p.exists():
             raise FileNotFoundError(f"Required demo fixture missing: {p}")
 
@@ -354,29 +373,37 @@ async def seed_workspace(
             )
         inv_committed_count = verify_inv.json().get("row_count", 1)
 
-    # 6. Promotional Policy (create draft and approve)
+    # 6. Promotional Policy with its agreement PDF (create draft and approve)
     promo_config = manifest["policies"]
     promo_id: str | None = None
     promo_version = 1
+    agreement_media_id: str | None = None
     promos_res = await client.get("/promotions", headers=headers)
     if promos_res.status_code == 200:
         for p in promos_res.json().get("items", []):
             if p.get("name") == promo_config["promotion_title"]:
                 promo_id = p["id"]
                 promo_version = p.get("version", 1)
+                agreement_media_id = p.get("agreement_media_id")
                 break
 
     if not promo_id:
+        agreement_media_id = await upload_demo_media(
+            client,
+            agreement_path,
+            kind="AGREEMENT",
+            headers=headers,
+        )
         promo_headers = dict(headers)
         promo_headers["Idempotency-Key"] = f"seed-promo-{manifest['dated']}-{seed_run_suffix}"
         create_promo_res = await client.post(
             "/promotions",
             json={
                 "name": promo_config["promotion_title"],
-                "starts_on": "2026-09-01",
-                "ends_on": "2026-09-30",
+                "starts_on": promo_config["starts_on"],
+                "ends_on": promo_config["ends_on"],
                 "store_ids": [str(store_id)],
-                "agreement_media_id": None,
+                "agreement_media_id": agreement_media_id,
             },
             headers=promo_headers,
         )
@@ -388,22 +415,10 @@ async def seed_workspace(
         promo_id = promo_data["id"]
         promo_version = promo_data["version"]
 
-        rule_cfg = promo_config.get("rule", {})
-        merch_rule = {
-            "rule_id": str(uuid4()),
-            "kind": "MIN_FACINGS",
-            "zone_id": store_config["zone_id"],
-            "zone_kind": store_config["zone_kind"],
-            "product_id": str(product_id),
-            "min_facings": rule_cfg.get("min_facings", 2),
-            "source": {
-                "kind": "MANUAL",
-                "media_id": None,
-                "page": None,
-                "quote": None,
-                "reviewer_note": rule_cfg.get("reviewer_note", "Demo merchandising facing rule"),
-            },
-        }
+        rules = [
+            build_manual_rule(rule_cfg, store_config, str(product_id))
+            for rule_cfg in promo_config["rules"]
+        ]
 
         # Approve policy with required catalog_product_ids and expected_version
         approve_headers = dict(headers)
@@ -412,7 +427,7 @@ async def seed_workspace(
             f"/promotions/{promo_id}/approve",
             json={
                 "expected_version": promo_version,
-                "rules": [merch_rule],
+                "rules": rules,
                 "catalog_product_ids": [str(product_id)],
             },
             headers=approve_headers,
@@ -428,55 +443,46 @@ async def seed_workspace(
         else:
             promo_version += 1
 
-    # 7. Store Visit (create or reuse)
-    visit_id: str | None = None
+    # 7. Store visits: a completed example and an open one to try (create or reuse by notes)
     visits_res = await client.get(f"/visits?store_id={store_id}", headers=headers)
-    if visits_res.status_code == 200:
-        visits_items = visits_res.json().get("items", [])
-        if visits_items:
-            visit_id = visits_items[0]["id"]
+    if visits_res.status_code != 200:
+        raise RuntimeError(f"Failed to list visits: {visits_res.status_code} {visits_res.text}")
+    existing_visits = {v.get("notes"): v for v in visits_res.json().get("items", [])}
 
-    if not visit_id:
-        visit_headers = dict(headers)
-        visit_headers["Idempotency-Key"] = f"seed-visit-{store_id}-{manifest['dated']}-{seed_run_suffix}"
-        create_visit_res = await client.post(
-            "/visits",
-            json={
-                "store_id": str(store_id),
-                "notes": "Demo shelf audit visit",
-            },
-            headers=visit_headers,
-        )
-        if create_visit_res.status_code != 201:
-            raise RuntimeError(
-                f"Failed to create visit: {create_visit_res.status_code} {create_visit_res.text}"
+    visit_ids: dict[str, str] = {}
+    before_media_ids: dict[str, str] = {}
+    for visit_key, visit_cfg in manifest["visits"].items():
+        existing = existing_visits.get(visit_cfg["notes"])
+        if existing:
+            visit_ids[visit_key] = existing["id"]
+        else:
+            create_visit_res = await client.post(
+                "/visits",
+                json={"store_id": str(store_id), "notes": visit_cfg["notes"]},
+                headers={
+                    **headers,
+                    "Idempotency-Key": f"seed-visit-{store_id}-{visit_key}-{seed_run_suffix}",
+                },
             )
-        visit_id = create_visit_res.json()["id"]
+            if create_visit_res.status_code != 201:
+                raise RuntimeError(
+                    f"Failed to create visit: {create_visit_res.status_code} {create_visit_res.text}"
+                )
+            visit_ids[visit_key] = create_visit_res.json()["id"]
 
-    # 8. Shelf Audit Media (before and after)
-    before_media_id = await upload_demo_media(
-        client,
-        before_path,
-        kind="VISIT_BEFORE",
-        headers=headers,
-        store_id=store_id,
-        zone_id=store_config["zone_id"],
-        zone_kind=store_config["zone_kind"],
-        captured_at=f"{manifest['dated']}T09:00:00Z",
-        visit_id=visit_id,
-    )
-
-    after_media_id = await upload_demo_media(
-        client,
-        after_path,
-        kind="VISIT_AFTER",
-        headers=headers,
-        store_id=store_id,
-        zone_id=store_config["zone_id"],
-        zone_kind=store_config["zone_kind"],
-        captured_at=f"{manifest['dated']}T10:00:00Z",
-        visit_id=visit_id,
-    )
+        # 8. Before photo bound to this visit. After photos must be captured within
+        # 30 minutes of verification, so they are uploaded only when verifying.
+        before_media_ids[visit_key] = await upload_demo_media(
+            client,
+            before_path,
+            kind="VISIT_BEFORE",
+            headers=headers,
+            store_id=store_id,
+            zone_id=store_config["zone_id"],
+            zone_kind=store_config["zone_kind"],
+            captured_at=visit_cfg["captured_at"],
+            visit_id=visit_ids[visit_key],
+        )
 
     return {
         "status": "SUCCESS",
@@ -490,11 +496,86 @@ async def seed_workspace(
         "inventory_committed_count": inv_committed_count,
         "promotion_id": str(promo_id),
         "promotion_version": promo_version,
-        "visit_id": str(visit_id),
-        "shelf_before_media_id": str(before_media_id),
-        "shelf_after_media_id": str(after_media_id),
+        "agreement_media_id": str(agreement_media_id) if agreement_media_id else None,
+        "visit_id": visit_ids["try"],
+        "example_visit_id": visit_ids["example"],
+        "shelf_before_media_id": before_media_ids["try"],
+        "example_shelf_before_media_id": before_media_ids["example"],
     }
 
+
+ACTIVITY_COLLECTIONS = ("/stores", "/products", "/promotions", "/visits", "/investigations")
+
+
+async def latest_activity(
+    client: httpx.AsyncClient, headers: dict[str, str]
+) -> datetime | None:
+    """Most recent updated_at across the workspace's user-editable records (all pages)."""
+    latest: datetime | None = None
+    for path in ACTIVITY_COLLECTIONS:
+        cursor: str | None = None
+        while True:
+            params = {"limit": 100, **({"cursor": cursor} if cursor else {})}
+            res = await client.get(path, headers=headers, params=params)
+            if res.status_code != 200:
+                raise RuntimeError(f"Failed to read {path} for activity check: {res.status_code} {res.text}")
+            body = res.json()
+            for item in body.get("items", []):
+                stamp = datetime.fromisoformat(item["updated_at"])
+                if latest is None or stamp > latest:
+                    latest = stamp
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+    return latest
+
+
+async def repair_if_idle(
+    client: httpx.AsyncClient,
+    workspace_id: UUID,
+    admin_headers: dict[str, str],
+    idle_hours: float,
+    now: datetime | None = None,
+    fixtures_dir: Path | None = None,
+) -> dict[str, object]:
+    """Restore missing demo records, but only when nobody has used the workspace recently.
+
+    The seed only creates records that are missing and never edits or deletes, so a
+    visitor's own changes stay in place. Any change inside the idle window skips the run.
+    """
+    headers = {**admin_headers, "X-Workspace-Id": str(workspace_id)}
+    last = await latest_activity(client, headers)
+    current = now or datetime.now(UTC)
+    if last is not None and current - last < timedelta(hours=idle_hours):
+        return {
+            "status": "SKIPPED_ACTIVE",
+            "workspace_id": str(workspace_id),
+            "last_activity": last.isoformat(),
+        }
+    result = await seed_workspace(client, workspace_id, admin_headers, fixtures_dir=fixtures_dir)
+    return {**result, "status": "REPAIRED", "last_activity": last.isoformat() if last else None}
+
+
+def build_manual_rule(
+    rule_cfg: dict[str, object], store_config: dict[str, str], product_id: str
+) -> dict[str, object]:
+    """Build a MANUAL-source rule DTO from a manifest rule entry (see SEMANTICS.md predicates)."""
+    kind = rule_cfg["kind"]
+    return {
+        "rule_id": str(uuid4()),
+        "kind": kind,
+        "zone_id": store_config["zone_id"],
+        "zone_kind": store_config["zone_kind"],
+        "product_id": product_id,
+        "min_facings": rule_cfg.get("min_facings") if kind == "MIN_FACINGS" else None,
+        "source": {
+            "kind": "MANUAL",
+            "media_id": None,
+            "page": None,
+            "quote": None,
+            "reviewer_note": rule_cfg["reviewer_note"],
+        },
+    }
 
 def build_cli_parser() -> argparse.ArgumentParser:
     """Build CLI argument parser for standalone seed execution."""
@@ -521,6 +602,18 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_FIXTURES_DIR),
         help="Custom fixtures directory containing manifest.json",
     )
+    parser.add_argument(
+        "--repair-if-idle",
+        type=float,
+        default=None,
+        metavar="HOURS",
+        help="Only restore missing demo records if nothing changed in the last HOURS hours",
+    )
+    parser.add_argument(
+        "--with-ai",
+        action="store_true",
+        help="Also run a live AI investigation and verification on the completed example visit",
+    )
     return parser
 
 
@@ -535,13 +628,18 @@ async def main() -> None:
         "X-Workspace-Id": str(ws_id),
     }
 
-    async with httpx.AsyncClient(base_url=args.api_url, timeout=30.0) as client:
-        result = await seed_workspace(
-            client,
-            ws_id,
-            admin_headers,
-            fixtures_dir=Path(args.fixtures_dir),
-        )
+    fixtures_dir = Path(args.fixtures_dir)
+    async with httpx.AsyncClient(base_url=args.api_url, timeout=180.0) as client:
+        if args.repair_if_idle is not None:
+            result = await repair_if_idle(
+                client, ws_id, admin_headers, idle_hours=args.repair_if_idle, fixtures_dir=fixtures_dir
+            )
+        else:
+            result = await seed_workspace(client, ws_id, admin_headers, fixtures_dir=fixtures_dir)
+        if args.with_ai and result["status"] != "SKIPPED_ACTIVE":
+            from scripts.seed_demo.ai_example import complete_example_visit
+
+            result["ai_example"] = await complete_example_visit(client, admin_headers, result, fixtures_dir)
         print(json.dumps(result, indent=2))
 
 
