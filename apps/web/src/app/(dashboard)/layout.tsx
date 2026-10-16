@@ -16,7 +16,40 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { user, token, isAdmin, isLoading } = useAuth();
+  const { user, token, isAdmin, isLoading, sessionError } = useAuth();
+
+  // Live session still resolving: neutral skeleton, never placeholder workspace data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <Header />
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6" aria-busy="true">
+          <p className="text-sm text-gray-500 animate-pulse">Loading workspace…</p>
+          <div className="mt-4 space-y-3">
+            <div className="h-24 rounded-lg bg-gray-200/70 animate-pulse" />
+            <div className="h-40 rounded-lg bg-gray-200/70 animate-pulse" />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (sessionError) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <Header />
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div
+            role="alert"
+            className="p-8 bg-white border border-red-200 rounded-lg shadow-sm text-center max-w-lg mx-auto my-12"
+          >
+            <h2 className="text-xl font-bold text-gray-900">Could not load your workspace</h2>
+            <p className="text-sm text-gray-600 mt-2">{sessionError}</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   // Explicit signed-out state: If not loading and missing user or token, require authentication
   if (!isLoading && (!user || !token)) {
