@@ -59,6 +59,8 @@ TASKS_QUEUE="storeops-work-queue"
 API_SA="storeops-api-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 WORKER_SA="storeops-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 INVOKER_SA="storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+# HMAC key for signed media byte URLs (API only). Created out of band, never by this script.
+MEDIA_URL_SIGNING_SECRET="storeops-media-url-signing-key"
 
 # Load GEMINI_API_KEY from .env if present and unset
 if [ -z "${GEMINI_API_KEY:-}" ] && [ -f "${ROOT_DIR}/.env" ]; then
@@ -90,6 +92,7 @@ gcloud services enable \
     storage.googleapis.com \
     aiplatform.googleapis.com \
     artifactregistry.googleapis.com \
+    secretmanager.googleapis.com \
     --project="${PROJECT_ID}"
 
 # 5. Service Accounts Setup
@@ -224,6 +227,18 @@ WORKER_URL="$(gcloud run services describe storeops-worker --region="${REGION}" 
 
 # 11. Deploy Cloud Run Public API
 echo -e "\n${BLUE}Step 8: Deploying Public Cloud Run API...${NC}"
+# The API refuses to boot with PROFILE=CLOUD and no MEDIA_URL_SIGNING_KEY; block early instead.
+if ! gcloud secrets describe "${MEDIA_URL_SIGNING_SECRET}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo -e "${RED}BLOCKED: Secret Manager secret '${MEDIA_URL_SIGNING_SECRET}' does not exist.${NC}"
+    echo "Create it once with a random value of at least 32 characters, e.g.:"
+    echo "  python3 -c 'import secrets; print(secrets.token_hex(32), end=\"\")' | \\"
+    echo "    gcloud secrets create ${MEDIA_URL_SIGNING_SECRET} --data-file=- --project=${PROJECT_ID}"
+    exit 2
+fi
+gcloud secrets add-iam-policy-binding "${MEDIA_URL_SIGNING_SECRET}" \
+    --member="serviceAccount:${API_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}" --quiet >/dev/null
 gcloud run deploy storeops-api \
     --source="${ROOT_DIR}" \
     --command="uvicorn,apps.api.main:app,--host,0.0.0.0,--port,8000" \
@@ -234,6 +249,7 @@ gcloud run deploy storeops-api \
     --ingress="all" \
     --max-instances=1 \
     --allow-unauthenticated \
+    --set-secrets="MEDIA_URL_SIGNING_KEY=${MEDIA_URL_SIGNING_SECRET}:latest" \
     --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=https://storeops-api-967137522464.asia-southeast1.run.app,MEDIA_BASE_URL=https://storeops-api-967137522464.asia-southeast1.run.app/media" \
     --quiet
 
