@@ -18,7 +18,7 @@ test("Modal: overlay cancels inherited sibling margins so it starts at the top o
         "div",
         { className: "space-y-6" },
         React.createElement("p", null, "page"),
-        React.createElement(Modal, { isOpen: true, onClose: () => {}, title: "T" }, "body"),
+        React.createElement(Modal, { isOpen: true, onClose: () => {}, title: "T", children: "body" }),
       ),
     );
   });
