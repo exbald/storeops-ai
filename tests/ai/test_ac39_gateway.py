@@ -219,6 +219,20 @@ async def test_gemini_gateway_thinking_setting(budget, expected_level, expected_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("budget", ["extreme", "dynamic", "-1", "1.5", "lowest"])
+async def test_gemini_gateway_rejects_unknown_thinking_setting(budget):
+    """An unknown thinking setting is a caller bug: fail loudly before calling the model."""
+    gateway = GeminiGateway(api_key="test-key", model_id="gemini-3.8-flash")
+
+    with patch.object(gateway, "_invoke_api", new_callable=AsyncMock) as mock_call:
+        with pytest.raises(ValueError, match="Unsupported thinking setting"):
+            await gateway.generate_structured(
+                prompt="Summarize", response_schema=SimpleTarget, thinking_budget=budget
+            )
+        mock_call.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_image_observation_uses_low_thinking():
     """Shelf photo observation is perception, not reasoning; low thinking keeps it fast."""
     from uuid import uuid4
