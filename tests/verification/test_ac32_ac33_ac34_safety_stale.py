@@ -41,6 +41,7 @@ class MalformedModelGateway(DeterministicModelGateway):
         response_schema: type[Any],
         images: list[bytes] | None = None,
         pdfs: list[bytes] | None = None,
+        thinking_budget: str | None = None,
     ) -> Any:
         if response_schema == VerificationProposal:
             self.call_count += 1
