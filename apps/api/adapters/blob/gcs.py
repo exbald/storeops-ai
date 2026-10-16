@@ -14,6 +14,19 @@ from apps.api.adapters.blob.processing import normalize_asset, resolve_media_bas
 from apps.api.ports.blob import BlobRepository
 
 OCTET_STREAM = "application/octet-stream"
+MAGIC_CONTENT_TYPES = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"%PDF-", "application/pdf"),
+)
+
+
+def sniff_content_type(data: bytes) -> str:
+    """Object metadata for direct bucket reads; the API serves the media record's MIME type."""
+    for magic, content_type in MAGIC_CONTENT_TYPES:
+        if data.startswith(magic):
+            return content_type
+    return OCTET_STREAM
 
 
 class GCSBlobRepository(BlobRepository):
@@ -41,7 +54,7 @@ class GCSBlobRepository(BlobRepository):
 
     async def _upload(self, media_id: UUID, data: bytes) -> None:
         await asyncio.to_thread(
-            self._blob(media_id).upload_from_string, data, content_type=OCTET_STREAM
+            self._blob(media_id).upload_from_string, data, content_type=sniff_content_type(data)
         )
 
     async def prepare_upload(self, media_id: UUID, filename: str, mime_type: str) -> str:
