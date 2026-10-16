@@ -1,10 +1,12 @@
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from fastapi import Depends
 
+from apps.api.adapters.state.firestore_persistence import default_firestore_client
 from apps.api.ai.gateway import DeterministicModelGateway, GeminiGateway
 from apps.api.core.auth import get_state_repository
-from apps.api.core.config import settings
+from apps.api.core.config import Settings, settings
 from apps.api.modules.catalog.dependencies import (
     get_blob_repository,
     get_catalog_repository,
@@ -25,10 +27,28 @@ _model_gateway: ModelGateway | None = None
 _clock: Clock | None = None
 
 
+def build_policy_repository(
+    cfg: Settings = settings,
+    firestore_client_factory: Callable[[str | None], Any] | None = None,
+) -> PolicyRepository:
+    """Write-through Firestore repo when STATE_BACKEND=firestore; in-memory otherwise.
+
+    The Firestore-backed repo serves reads from memory: single API instance only.
+    """
+    if cfg.state_backend.lower() == "firestore":
+        from apps.api.adapters.state.firestore_write_through import (
+            FirestoreBackedPolicyRepository,
+        )
+
+        factory = firestore_client_factory or default_firestore_client
+        return FirestoreBackedPolicyRepository(client=factory(cfg.firebase_project_id))
+    return InMemoryPolicyRepository()
+
+
 def get_policy_repository() -> PolicyRepository:
     global _policy_repository
     if _policy_repository is None:
-        _policy_repository = InMemoryPolicyRepository()
+        _policy_repository = build_policy_repository()
     return _policy_repository
 
 

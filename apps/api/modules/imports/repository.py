@@ -5,7 +5,29 @@ from uuid import UUID
 from storeops_contracts.models import Import, Kind2
 
 
+def paginate_imports(
+    imports: list[Import], cursor: str | None, limit: int
+) -> tuple[list[Import], str | None]:
+    """Order by (created_at DESC, id DESC) and page after the cursor id."""
+    ordered = sorted(imports, key=lambda x: (x.created_at, x.id), reverse=True)
+
+    start_idx = 0
+    if cursor:
+        for idx, imp in enumerate(ordered):
+            if str(imp.id) == cursor:
+                start_idx = idx + 1
+                break
+
+    items = ordered[start_idx : start_idx + limit]
+    next_cursor = None
+    if start_idx + limit < len(ordered) and items:
+        next_cursor = str(items[-1].id)
+    return items, next_cursor
+
+
 class ImportRepository:
+    """In-memory import store (LOCAL profile)."""
+
     def __init__(self) -> None:
         self._imports: dict[UUID, Import] = {}
         self._staged_rows: dict[UUID, list[dict[str, Any]]] = {}
@@ -62,19 +84,4 @@ class ImportRepository:
                 for imp in self._imports.values()
                 if imp.workspace_id == workspace_id
             ]
-            # Sort descending (created_at DESC, id DESC)
-            ws_imports.sort(key=lambda x: (x.created_at, x.id), reverse=True)
-
-            start_idx = 0
-            if cursor:
-                for idx, imp in enumerate(ws_imports):
-                    if str(imp.id) == cursor:
-                        start_idx = idx + 1
-                        break
-
-            items = ws_imports[start_idx : start_idx + limit]
-            next_cursor = None
-            if start_idx + limit < len(ws_imports) and items:
-                next_cursor = str(items[-1].id)
-
-            return items, next_cursor
+            return paginate_imports(ws_imports, cursor, limit)

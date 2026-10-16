@@ -81,6 +81,10 @@ class CatalogRepository(Protocol):
     async def get_media(self, workspace_id: UUID, media_id: UUID) -> Media | None:
         ...
 
+    async def get_media_by_id(self, media_id: UUID) -> Media | None:
+        """Lookup without workspace scope; only for the unauthenticated upload route."""
+        ...
+
     async def create_media(self, media: Media) -> Media:
         ...
 
@@ -242,6 +246,12 @@ class InMemoryCatalogRepository(CatalogRepository):
 
     async def get_media(self, workspace_id: UUID, media_id: UUID) -> Media | None:
         return self._media.get((workspace_id, media_id))
+
+    async def get_media_by_id(self, media_id: UUID) -> Media | None:
+        for (_, mid), media in self._media.items():
+            if mid == media_id:
+                return media
+        return None
 
     async def create_media(self, media: Media) -> Media:
         self._media[(media.workspace_id, media.id)] = media

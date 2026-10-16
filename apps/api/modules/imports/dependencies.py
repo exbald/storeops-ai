@@ -1,9 +1,12 @@
-from typing import Annotated
+from collections.abc import Callable
+from typing import Annotated, Any
 
 from fastapi import Depends
 
+from apps.api.adapters.state.firestore_persistence import default_firestore_client
 from apps.api.analytics.duckdb import DuckDBAnalyticsRepository
 from apps.api.core.auth import get_state_repository
+from apps.api.core.config import ConfigurationError, Settings, settings
 from apps.api.modules.catalog.dependencies import (
     get_blob_repository,
     get_catalog_repository,
@@ -14,21 +17,71 @@ from apps.api.modules.imports.service import ImportService
 from apps.api.ports.analytics import AnalyticsRepository
 from apps.api.ports.blob import BlobRepository
 from apps.api.ports.clock import Clock, SystemClock
+from apps.api.ports.imports import ImportRepositoryPort
 from apps.api.ports.state import StateRepository
 
-_import_repository: ImportRepository | None = None
+_import_repository: ImportRepositoryPort | None = None
 _analytics_repository: AnalyticsRepository | None = None
 _clock: Clock | None = None
 
 
-def get_import_repository() -> ImportRepository:
+def _default_bigquery_client(project: str | None) -> Any:
+    from google.cloud import bigquery
+
+    return bigquery.Client(project=project)
+
+
+def build_import_repository(
+    cfg: Settings = settings,
+    firestore_client_factory: Callable[[str | None], Any] | None = None,
+) -> ImportRepositoryPort:
+    """Firestore when STATE_BACKEND=firestore; in-memory otherwise (LOCAL only)."""
+    if cfg.state_backend.lower() == "firestore":
+        from apps.api.adapters.state.firestore_imports import FirestoreImportRepository
+
+        factory = firestore_client_factory or default_firestore_client
+        return FirestoreImportRepository(client=factory(cfg.firebase_project_id))
+    return ImportRepository()
+
+
+def build_analytics_repository(
+    cfg: Settings = settings,
+    bigquery_client_factory: Callable[[str | None], Any] | None = None,
+) -> AnalyticsRepository:
+    """BigQuery when DATA_BACKEND=CLOUD; DuckDB otherwise. No silent fallback in CLOUD."""
+    if cfg.data_backend.upper() == "CLOUD":
+        missing = [
+            name
+            for name, value in (
+                ("GCP_PROJECT", cfg.gcp_project),
+                ("BIGQUERY_DATASET", cfg.bigquery_dataset),
+            )
+            if not value
+        ]
+        if missing:
+            raise ConfigurationError(f"DATA_BACKEND=CLOUD requires {', '.join(missing)}")
+        from apps.api.analytics.bigquery import BigQueryAnalyticsRepository
+
+        factory = bigquery_client_factory or _default_bigquery_client
+        return BigQueryAnalyticsRepository(
+            project_id=cfg.gcp_project,
+            dataset_id=cfg.bigquery_dataset,
+            allow_prod=cfg.is_production,
+            client=factory(cfg.gcp_project),
+        )
+    if cfg.profile.upper() == "CLOUD":
+        raise ConfigurationError("PROFILE=CLOUD requires DATA_BACKEND=CLOUD (BigQuery analytics)")
+    return DuckDBAnalyticsRepository()
+
+
+def get_import_repository() -> ImportRepositoryPort:
     global _import_repository
     if _import_repository is None:
-        _import_repository = ImportRepository()
+        _import_repository = build_import_repository()
     return _import_repository
 
 
-def set_import_repository(repo: ImportRepository) -> None:
+def set_import_repository(repo: ImportRepositoryPort) -> None:
     global _import_repository
     _import_repository = repo
 
@@ -36,7 +89,7 @@ def set_import_repository(repo: ImportRepository) -> None:
 def get_analytics_repository() -> AnalyticsRepository:
     global _analytics_repository
     if _analytics_repository is None:
-        _analytics_repository = DuckDBAnalyticsRepository()
+        _analytics_repository = build_analytics_repository()
     return _analytics_repository
 
 
@@ -58,7 +111,7 @@ def set_clock(clk: Clock) -> None:
 
 
 def get_import_service(
-    import_repo: Annotated[ImportRepository, Depends(get_import_repository)],
+    import_repo: Annotated[ImportRepositoryPort, Depends(get_import_repository)],
     analytics_repo: Annotated[AnalyticsRepository, Depends(get_analytics_repository)],
     catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
     state_repo: Annotated[StateRepository, Depends(get_state_repository)],

@@ -19,11 +19,11 @@ from storeops_contracts.models import (
 
 from apps.api.analytics.metrics import compute_peer_gap_metrics
 from apps.api.modules.catalog.repository import CatalogRepository
-from apps.api.modules.imports.repository import ImportRepository
 from apps.api.modules.imports.validator import validate_csv_content
 from apps.api.ports.analytics import AnalyticsRepository
 from apps.api.ports.blob import BlobRepository
 from apps.api.ports.clock import Clock
+from apps.api.ports.imports import ImportRepositoryPort
 from apps.api.ports.state import StateRepository
 
 
@@ -52,7 +52,7 @@ class ValidationError(ImportServiceError):
 class ImportService:
     def __init__(
         self,
-        import_repo: ImportRepository,
+        import_repo: ImportRepositoryPort,
         analytics_repo: AnalyticsRepository,
         catalog_repo: CatalogRepository,
         state_repo: StateRepository,
