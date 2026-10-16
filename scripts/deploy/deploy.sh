@@ -273,7 +273,7 @@ gcloud run deploy storeops-web \
     --ingress="all" \
     --max-instances=3 \
     --allow-unauthenticated \
-    --set-env-vars="NODE_ENV=production,NEXT_PUBLIC_API_URL=${API_URL},NEXT_PUBLIC_WORKSPACE_ID=00000000-0000-0000-0000-000000000003,NEXT_PUBLIC_AUTH_TOKEN=dev-admin-token" \
+    --set-env-vars="NODE_ENV=production,NEXT_PUBLIC_API_URL=${API_URL},NEXT_PUBLIC_WORKSPACE_ID=00000000-0000-0000-0000-000000000004,NEXT_PUBLIC_AUTH_TOKEN=dev-admin-token" \
     --quiet
 
 WEB_URL="$(gcloud run services describe storeops-web --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
