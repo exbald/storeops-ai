@@ -278,6 +278,7 @@ async def test_ac27_bigquery_commit_decimal_serialization():
     mock_query_job = MagicMock()
     mock_query_job.result.return_value = []
     mock_client.query.return_value = mock_query_job
+    mock_client.insert_rows_json.return_value = []  # BigQuery returns [] when all rows insert
     repo._client = mock_client
 
     workspace_id = uuid4()
@@ -307,9 +308,13 @@ async def test_ac27_bigquery_commit_decimal_serialization():
 
     # Verify insert_rows_json called for sales_facts with string revenue
     assert mock_client.insert_rows_json.call_count == 2
-    sales_insert_call = mock_client.insert_rows_json.call_args_list[1]
-    table_id, inserted_rows = sales_insert_call[0]
-    assert table_id == "test-proj.disposable_test_ac27.sales_facts"
+    sales_calls = [
+        c[0]
+        for c in mock_client.insert_rows_json.call_args_list
+        if c[0][0] == "test-proj.disposable_test_ac27.sales_facts"
+    ]
+    assert len(sales_calls) == 1
+    _, inserted_rows = sales_calls[0]
     assert len(inserted_rows) == 1
     assert inserted_rows[0]["revenue"] == "199.95"
     assert isinstance(inserted_rows[0]["revenue"], str)

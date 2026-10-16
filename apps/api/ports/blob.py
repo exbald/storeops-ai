@@ -7,6 +7,10 @@ class BlobRepository(Protocol):
         """Prepare upload destination and return upload URL."""
         ...
 
+    async def store_upload(self, media_id: UUID, data: bytes) -> None:
+        """Persist raw bytes received by the API-mediated upload route."""
+        ...
+
     async def finalize_upload(
         self, media_id: UUID, raw_bytes: bytes | None = None
     ) -> tuple[str, int, tuple[int, int] | None]:

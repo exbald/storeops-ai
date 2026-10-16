@@ -1,10 +1,14 @@
 import os
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 load_dotenv(override=True)
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when the configured backends are incomplete or inconsistent."""
 
 
 class Settings(BaseSettings):
@@ -20,6 +24,10 @@ class Settings(BaseSettings):
     )
     media_storage_dir: str = os.getenv("MEDIA_STORAGE_DIR", ".local_storage/media")
     state_backend: str = os.getenv("STATE_BACKEND", "in_memory")  # in_memory or firestore
+    data_backend: str = os.getenv("DATA_BACKEND", "LOCAL")  # LOCAL (DuckDB) or CLOUD (BigQuery)
+    media_bucket: str | None = os.getenv("MEDIA_BUCKET") or None  # GCS bucket for media bytes
+    gcp_project: str | None = os.getenv("GCP_PROJECT") or os.getenv("GCP_PROJECT_ID") or None
+    bigquery_dataset: str | None = os.getenv("BIGQUERY_DATASET") or None
 
     @model_validator(mode="after")
     def validate_cloud_profile(self) -> "Settings":

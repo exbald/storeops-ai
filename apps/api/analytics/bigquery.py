@@ -30,6 +30,7 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         project_id: str | None = None,
         dataset_id: str | None = None,
         allow_prod: bool = False,
+        client: Any | None = None,
     ) -> None:
         self.project_id = project_id or "storeops-dev"
         self.dataset_id = dataset_id or "disposable_test_analytics"
@@ -48,6 +49,10 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
                     f"Refusing to target production-like dataset '{self.dataset_id}' without allow_prod=True"
                 )
 
+        if client is not None:
+            self._client = client
+            return
+
         try:
             from google.cloud import bigquery  # type: ignore
 
@@ -61,6 +66,16 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
 
     def _get_table_id(self, table_name: str) -> str:
         return f"`{self.project_id}.{self.dataset_id}.{table_name}`"
+
+    def _insert_rows(self, table_name: str, rows: list[dict[str, Any]]) -> None:
+        """Streaming insert that fails loudly; BigQuery reports row errors in the return value."""
+        if not rows:
+            return
+        errors = self._client.insert_rows_json(self._get_table_id(table_name).strip("`"), rows)
+        if errors:
+            raise RuntimeError(
+                f"BigQuery insert into {table_name} failed for {len(errors)} row(s): {errors[:3]}"
+            )
 
     def _build_sales_window_query(
         self,
@@ -184,24 +199,8 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
         if results and results[0]["cnt"] > 0:
             return len(rows)
 
-        # Insert manifest
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC)
-        manifest_row = {
-            "workspace_id": str(workspace_id),
-            "batch_id": batch_id,
-            "kind": kind,
-            "import_id": str(import_id),
-            "source_sha256": source_sha256,
-            "row_count": len(rows),
-            "committed_at": now.isoformat(),
-        }
-        self._client.insert_rows_json(
-            self._get_table_id("import_batches").strip("`"), [manifest_row]
-        )
-
-        # Insert facts
+        # Facts first, manifest last: queries join on import_batches, so facts are
+        # invisible until the manifest lands, and a failed insert is retryable.
         if kind == "SALES":
             sales_rows = [
                 {
@@ -216,9 +215,7 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
                 }
                 for r in rows
             ]
-            self._client.insert_rows_json(
-                self._get_table_id("sales_facts").strip("`"), sales_rows
-            )
+            self._insert_rows("sales_facts", sales_rows)
         elif kind == "INVENTORY":
             inv_rows = [
                 {
@@ -233,9 +230,20 @@ class BigQueryAnalyticsRepository(AnalyticsRepository):
                 }
                 for r in rows
             ]
-            self._client.insert_rows_json(
-                self._get_table_id("inventory_facts").strip("`"), inv_rows
-            )
+            self._insert_rows("inventory_facts", inv_rows)
+
+        from datetime import UTC, datetime
+
+        manifest_row = {
+            "workspace_id": str(workspace_id),
+            "batch_id": batch_id,
+            "kind": kind,
+            "import_id": str(import_id),
+            "source_sha256": source_sha256,
+            "row_count": len(rows),
+            "committed_at": datetime.now(UTC).isoformat(),
+        }
+        self._insert_rows("import_batches", [manifest_row])
 
         return len(rows)
 
