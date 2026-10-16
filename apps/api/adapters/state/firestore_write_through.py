@@ -1,13 +1,16 @@
 """Firestore-backed (write-through) variants of the in-memory module repositories.
 
-Each subclass persists the entity to Firestore BEFORE delegating to the in-memory
-implementation, so a failed write raises and leaves memory unchanged. Reads stay
-in memory; load() fills memory at startup.
+Each mutator runs the in-memory implementation FIRST (it applies the repository's
+invariants), then persists the result to Firestore. If persisting raises, the
+in-memory change is reverted and the error propagates, so the request fails and a
+rejected mutation never reaches Firestore. Reads stay in memory; load() fills
+memory at startup.
 
 Requires a single API instance (Cloud Run max-instances=1); see
 firestore_persistence.py for the constraint and document layout.
 """
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -25,11 +28,13 @@ from storeops_contracts.models import (
     Visit,
 )
 
-from apps.api.adapters.state.firestore_persistence import FirestoreWriteThrough
+from apps.api.adapters.state.firestore_persistence import FirestoreWriteThrough, UndoLog
 from apps.api.modules.catalog.repository import InMemoryCatalogRepository
 from apps.api.modules.policies.repository import InMemoryPolicyRepository
 from apps.api.modules.verification.repository import InMemoryVerificationRepository
 from apps.api.modules.visits.repository import InMemoryVisitRepository
+
+logger = logging.getLogger(__name__)
 
 STORES = "stores"
 LOCATIONS = "locations"
@@ -72,56 +77,131 @@ class FirestoreBackedCatalogRepository(FirestoreWriteThrough, InMemoryCatalogRep
                 (UUID(data["workspace_id"]), UUID(data["product_id"]))
             )
 
+    def _store_undo(self, store: Store) -> UndoLog:
+        ws = store.workspace_id
+        return (
+            UndoLog()
+            .track(self._stores, (ws, store.id))
+            .track(self._stores_by_code, (ws, store.code))
+        )
+
+    def _location_undo(self, location: Location, undo: UndoLog | None = None) -> UndoLog:
+        ws = location.workspace_id
+        return (
+            (undo or UndoLog())
+            .track(self._locations, (ws, location.id))
+            .track(self._locations_by_code, (ws, location.code))
+        )
+
+    def _product_undo(self, product: Product) -> UndoLog:
+        ws = product.workspace_id
+        return (
+            UndoLog()
+            .track(self._products, (ws, product.id))
+            .track(self._products_by_sku, (ws, product.sku))
+        )
+
+    async def _put_store_with_backroom(self, created: tuple[Store, Location]) -> None:
+        store, backroom = created
+        await self._entity_store.put(LOCATIONS, backroom.workspace_id, backroom.id, backroom)
+        try:
+            await self._entity_store.put(STORES, store.workspace_id, store.id, store)
+        except BaseException:
+            # Do not leave an orphan backroom document that would reappear on load().
+            try:
+                await self._entity_store.delete(LOCATIONS, str(backroom.id))
+            except Exception:
+                logger.exception("Could not remove orphan backroom document %s", backroom.id)
+            raise
+
     async def create_store_with_backroom(
         self, store: Store, backroom: Location
     ) -> tuple[Store, Location]:
-        await self._entity_store.put(LOCATIONS, backroom.workspace_id, backroom.id, backroom)
-        await self._entity_store.put(STORES, store.workspace_id, store.id, store)
-        return await super().create_store_with_backroom(store, backroom)
+        undo = self._location_undo(backroom, self._store_undo(store))
+        return await self._write_through(
+            undo,
+            lambda: super(FirestoreBackedCatalogRepository, self).create_store_with_backroom(
+                store, backroom
+            ),
+            self._put_store_with_backroom,
+        )
 
     async def update_store(self, store: Store) -> Store:
-        await self._entity_store.put(STORES, store.workspace_id, store.id, store)
-        return await super().update_store(store)
+        return await self._write_through(
+            self._store_undo(store),
+            lambda: super(FirestoreBackedCatalogRepository, self).update_store(store),
+            lambda s: self._entity_store.put(STORES, s.workspace_id, s.id, s),
+        )
 
     async def create_location(self, location: Location) -> Location:
-        await self._entity_store.put(LOCATIONS, location.workspace_id, location.id, location)
-        return await super().create_location(location)
+        return await self._write_through(
+            self._location_undo(location),
+            lambda: super(FirestoreBackedCatalogRepository, self).create_location(location),
+            lambda loc: self._entity_store.put(LOCATIONS, loc.workspace_id, loc.id, loc),
+        )
 
     async def update_location(self, location: Location) -> Location:
-        await self._entity_store.put(LOCATIONS, location.workspace_id, location.id, location)
-        return await super().update_location(location)
+        return await self._write_through(
+            self._location_undo(location),
+            lambda: super(FirestoreBackedCatalogRepository, self).update_location(location),
+            lambda loc: self._entity_store.put(LOCATIONS, loc.workspace_id, loc.id, loc),
+        )
 
     async def create_product(self, product: Product) -> Product:
-        await self._entity_store.put(PRODUCTS, product.workspace_id, product.id, product)
-        return await super().create_product(product)
+        return await self._write_through(
+            self._product_undo(product),
+            lambda: super(FirestoreBackedCatalogRepository, self).create_product(product),
+            lambda p: self._entity_store.put(PRODUCTS, p.workspace_id, p.id, p),
+        )
 
     async def update_product(self, product: Product) -> Product:
-        await self._entity_store.put(PRODUCTS, product.workspace_id, product.id, product)
-        return await super().update_product(product)
+        return await self._write_through(
+            self._product_undo(product),
+            lambda: super(FirestoreBackedCatalogRepository, self).update_product(product),
+            lambda p: self._entity_store.put(PRODUCTS, p.workspace_id, p.id, p),
+        )
 
     async def create_media(self, media: Media) -> Media:
-        await self._entity_store.put(MEDIA, media.workspace_id, media.id, media)
-        return await super().create_media(media)
+        return await self._write_through(
+            UndoLog().track(self._media, (media.workspace_id, media.id)),
+            lambda: super(FirestoreBackedCatalogRepository, self).create_media(media),
+            lambda m: self._entity_store.put(MEDIA, m.workspace_id, m.id, m),
+        )
 
     async def update_media(self, media: Media) -> Media:
-        await self._entity_store.put(MEDIA, media.workspace_id, media.id, media)
-        return await super().update_media(media)
+        return await self._write_through(
+            UndoLog().track(self._media, (media.workspace_id, media.id)),
+            lambda: super(FirestoreBackedCatalogRepository, self).update_media(media),
+            lambda m: self._entity_store.put(MEDIA, m.workspace_id, m.id, m),
+        )
 
     async def add_active_policy_product_reference(
         self, workspace_id: UUID, product_id: UUID
     ) -> None:
-        await self._entity_store.put_marker(
-            POLICY_PRODUCT_REFS,
-            _ref_doc_id(workspace_id, product_id),
-            {"workspace_id": str(workspace_id), "product_id": str(product_id)},
+        await self._write_through(
+            UndoLog().track(self._active_policy_product_references, (workspace_id, product_id)),
+            lambda: super(
+                FirestoreBackedCatalogRepository, self
+            ).add_active_policy_product_reference(workspace_id, product_id),
+            lambda _: self._entity_store.put_marker(
+                POLICY_PRODUCT_REFS,
+                _ref_doc_id(workspace_id, product_id),
+                {"workspace_id": str(workspace_id), "product_id": str(product_id)},
+            ),
         )
-        await super().add_active_policy_product_reference(workspace_id, product_id)
 
     async def remove_active_policy_product_reference(
         self, workspace_id: UUID, product_id: UUID
     ) -> None:
-        await self._entity_store.delete(POLICY_PRODUCT_REFS, _ref_doc_id(workspace_id, product_id))
-        await super().remove_active_policy_product_reference(workspace_id, product_id)
+        await self._write_through(
+            UndoLog().track(self._active_policy_product_references, (workspace_id, product_id)),
+            lambda: super(
+                FirestoreBackedCatalogRepository, self
+            ).remove_active_policy_product_reference(workspace_id, product_id),
+            lambda _: self._entity_store.delete(
+                POLICY_PRODUCT_REFS, _ref_doc_id(workspace_id, product_id)
+            ),
+        )
 
 
 class FirestoreBackedPolicyRepository(FirestoreWriteThrough, InMemoryPolicyRepository):
@@ -137,20 +217,41 @@ class FirestoreBackedPolicyRepository(FirestoreWriteThrough, InMemoryPolicyRepos
             self.policy_versions_by_id[(ws, pv.id)] = pv
 
     async def create_promotion(self, workspace_id: UUID, promotion: Promotion) -> Promotion:
-        await self._entity_store.put(PROMOTIONS, workspace_id, promotion.id, promotion)
-        return await super().create_promotion(workspace_id, promotion)
+        return await self._write_through(
+            UndoLog().track(self.promotions, (workspace_id, promotion.id)),
+            lambda: super(FirestoreBackedPolicyRepository, self).create_promotion(
+                workspace_id, promotion
+            ),
+            lambda p: self._entity_store.put(PROMOTIONS, workspace_id, p.id, p),
+        )
 
     async def update_promotion(self, workspace_id: UUID, promotion: Promotion) -> Promotion:
-        await self._entity_store.put(PROMOTIONS, workspace_id, promotion.id, promotion)
-        return await super().update_promotion(workspace_id, promotion)
+        return await self._write_through(
+            UndoLog().track(self.promotions, (workspace_id, promotion.id)),
+            lambda: super(FirestoreBackedPolicyRepository, self).update_promotion(
+                workspace_id, promotion
+            ),
+            lambda p: self._entity_store.put(PROMOTIONS, workspace_id, p.id, p),
+        )
 
     async def create_policy_version(
         self, workspace_id: UUID, policy_version: PolicyVersion
     ) -> PolicyVersion:
-        await self._entity_store.put(
-            POLICY_VERSIONS, workspace_id, policy_version.id, policy_version
+        undo = (
+            UndoLog()
+            .track(
+                self.policy_versions,
+                (workspace_id, policy_version.promotion_id, policy_version.version),
+            )
+            .track(self.policy_versions_by_id, (workspace_id, policy_version.id))
         )
-        return await super().create_policy_version(workspace_id, policy_version)
+        return await self._write_through(
+            undo,
+            lambda: super(FirestoreBackedPolicyRepository, self).create_policy_version(
+                workspace_id, policy_version
+            ),
+            lambda pv: self._entity_store.put(POLICY_VERSIONS, workspace_id, pv.id, pv),
+        )
 
 
 class FirestoreBackedVisitRepository(FirestoreWriteThrough, InMemoryVisitRepository):
@@ -170,32 +271,56 @@ class FirestoreBackedVisitRepository(FirestoreWriteThrough, InMemoryVisitReposit
             self._reports[(ws, rep.id)] = rep
 
     async def create_visit(self, workspace_id: UUID, visit: Visit) -> Visit:
-        await self._entity_store.put(VISITS, workspace_id, visit.id, visit)
-        return await super().create_visit(workspace_id, visit)
+        return await self._write_through(
+            UndoLog().track(self._visits, (workspace_id, visit.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).create_visit(workspace_id, visit),
+            lambda v: self._entity_store.put(VISITS, workspace_id, v.id, v),
+        )
 
     async def update_visit(self, workspace_id: UUID, visit: Visit) -> Visit:
-        await self._entity_store.put(VISITS, workspace_id, visit.id, visit)
-        return await super().update_visit(workspace_id, visit)
+        return await self._write_through(
+            UndoLog().track(self._visits, (workspace_id, visit.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).update_visit(workspace_id, visit),
+            lambda v: self._entity_store.put(VISITS, workspace_id, v.id, v),
+        )
 
     async def create_investigation(
         self, workspace_id: UUID, investigation: Investigation
     ) -> Investigation:
-        await self._entity_store.put(INVESTIGATIONS, workspace_id, investigation.id, investigation)
-        return await super().create_investigation(workspace_id, investigation)
+        return await self._write_through(
+            UndoLog().track(self._investigations, (workspace_id, investigation.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).create_investigation(
+                workspace_id, investigation
+            ),
+            lambda i: self._entity_store.put(INVESTIGATIONS, workspace_id, i.id, i),
+        )
 
     async def update_investigation(
         self, workspace_id: UUID, investigation: Investigation
     ) -> Investigation:
-        await self._entity_store.put(INVESTIGATIONS, workspace_id, investigation.id, investigation)
-        return await super().update_investigation(workspace_id, investigation)
+        return await self._write_through(
+            UndoLog().track(self._investigations, (workspace_id, investigation.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).update_investigation(
+                workspace_id, investigation
+            ),
+            lambda i: self._entity_store.put(INVESTIGATIONS, workspace_id, i.id, i),
+        )
 
     async def save_evidence(self, workspace_id: UUID, evidence: Evidence) -> Evidence:
-        await self._entity_store.put(EVIDENCE, workspace_id, evidence.id, evidence)
-        return await super().save_evidence(workspace_id, evidence)
+        return await self._write_through(
+            UndoLog().track(self._evidence, (workspace_id, evidence.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).save_evidence(
+                workspace_id, evidence
+            ),
+            lambda e: self._entity_store.put(EVIDENCE, workspace_id, e.id, e),
+        )
 
     async def save_report(self, workspace_id: UUID, report: Report) -> Report:
-        await self._entity_store.put(REPORTS, workspace_id, report.id, report)
-        return await super().save_report(workspace_id, report)
+        return await self._write_through(
+            UndoLog().track(self._reports, (workspace_id, report.id)),
+            lambda: super(FirestoreBackedVisitRepository, self).save_report(workspace_id, report),
+            lambda r: self._entity_store.put(REPORTS, workspace_id, r.id, r),
+        )
 
 
 class FirestoreBackedVerificationRepository(FirestoreWriteThrough, InMemoryVerificationRepository):
@@ -210,11 +335,21 @@ class FirestoreBackedVerificationRepository(FirestoreWriteThrough, InMemoryVerif
     async def save_verification(
         self, workspace_id: UUID, verification: Verification
     ) -> Verification:
-        await self._entity_store.put(VERIFICATIONS, workspace_id, verification.id, verification)
-        return await super().save_verification(workspace_id, verification)
+        return await self._write_through(
+            UndoLog().track(self._verifications, (workspace_id, verification.id)),
+            lambda: super(FirestoreBackedVerificationRepository, self).save_verification(
+                workspace_id, verification
+            ),
+            lambda v: self._entity_store.put(VERIFICATIONS, workspace_id, v.id, v),
+        )
 
     async def update_verification(
         self, workspace_id: UUID, verification: Verification
     ) -> Verification:
-        await self._entity_store.put(VERIFICATIONS, workspace_id, verification.id, verification)
-        return await super().update_verification(workspace_id, verification)
+        return await self._write_through(
+            UndoLog().track(self._verifications, (workspace_id, verification.id)),
+            lambda: super(FirestoreBackedVerificationRepository, self).update_verification(
+                workspace_id, verification
+            ),
+            lambda v: self._entity_store.put(VERIFICATIONS, workspace_id, v.id, v),
+        )

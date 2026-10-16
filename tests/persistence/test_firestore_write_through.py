@@ -242,3 +242,157 @@ async def test_load_is_idempotent(fake_firestore):
     await fresh.load()
     items, _ = await fresh.list_visits(ws)
     assert len(items) == 1
+
+
+# ---------------------------------------------------------------- ordering / compensation
+
+
+class _InvariantError(Exception):
+    pass
+
+
+async def _reject_mutation(*_args, **_kwargs):
+    raise _InvariantError("in-memory layer rejected the mutation")
+
+
+_MUTATORS = [
+    (
+        FirestoreBackedCatalogRepository,
+        "create_store_with_backroom",
+        lambda r, ws: r.create_store_with_backroom(f.store(ws), f.location(ws)),
+    ),
+    (FirestoreBackedCatalogRepository, "update_store", lambda r, ws: r.update_store(f.store(ws))),
+    (FirestoreBackedCatalogRepository, "create_location", lambda r, ws: r.create_location(f.location(ws))),
+    (FirestoreBackedCatalogRepository, "update_location", lambda r, ws: r.update_location(f.location(ws))),
+    (FirestoreBackedCatalogRepository, "create_product", lambda r, ws: r.create_product(f.product(ws))),
+    (FirestoreBackedCatalogRepository, "update_product", lambda r, ws: r.update_product(f.product(ws))),
+    (FirestoreBackedCatalogRepository, "create_media", lambda r, ws: r.create_media(f.media(ws))),
+    (FirestoreBackedCatalogRepository, "update_media", lambda r, ws: r.update_media(f.media(ws))),
+    (
+        FirestoreBackedCatalogRepository,
+        "add_active_policy_product_reference",
+        lambda r, ws: r.add_active_policy_product_reference(ws, uuid4()),
+    ),
+    (FirestoreBackedPolicyRepository, "create_promotion", lambda r, ws: r.create_promotion(ws, f.promotion(ws))),
+    (FirestoreBackedPolicyRepository, "update_promotion", lambda r, ws: r.update_promotion(ws, f.promotion(ws))),
+    (
+        FirestoreBackedPolicyRepository,
+        "create_policy_version",
+        lambda r, ws: r.create_policy_version(ws, f.policy_version(uuid4())),
+    ),
+    (FirestoreBackedVisitRepository, "create_visit", lambda r, ws: r.create_visit(ws, f.visit(ws))),
+    (FirestoreBackedVisitRepository, "update_visit", lambda r, ws: r.update_visit(ws, f.visit(ws))),
+    (
+        FirestoreBackedVisitRepository,
+        "create_investigation",
+        lambda r, ws: r.create_investigation(ws, f.investigation(ws)),
+    ),
+    (
+        FirestoreBackedVisitRepository,
+        "update_investigation",
+        lambda r, ws: r.update_investigation(ws, f.investigation(ws)),
+    ),
+    (FirestoreBackedVisitRepository, "save_evidence", lambda r, ws: r.save_evidence(ws, f.evidence(uuid4()))),
+    (FirestoreBackedVisitRepository, "save_report", lambda r, ws: r.save_report(ws, f.report(ws, uuid4()))),
+    (
+        FirestoreBackedVerificationRepository,
+        "save_verification",
+        lambda r, ws: r.save_verification(ws, f.verification(ws, uuid4())),
+    ),
+    (
+        FirestoreBackedVerificationRepository,
+        "update_verification",
+        lambda r, ws: r.update_verification(ws, f.verification(ws, uuid4())),
+    ),
+]
+
+
+@pytest.mark.parametrize(("repo_cls", "method", "call"), _MUTATORS)
+async def test_rejected_in_memory_mutation_writes_nothing_to_firestore(
+    fake_firestore, monkeypatch, repo_cls, method, call
+):
+    """Memory validates first; a mutation it rejects must never reach Firestore."""
+    in_memory_base = next(
+        base for base in repo_cls.__mro__[1:] if base.__name__.startswith("InMemory")
+    )
+    monkeypatch.setattr(in_memory_base, method, _reject_mutation)
+    repo = repo_cls(client=fake_firestore)
+
+    with pytest.raises(_InvariantError):
+        await call(repo, uuid4())
+    assert fake_firestore.docs == {}
+
+
+async def test_duplicate_sku_create_writes_nothing_to_firestore(fake_firestore):
+    from storeops_contracts.models import ProductCreate
+
+    from apps.api.core.errors import ApiError
+    from apps.api.modules.catalog.service import CatalogService
+
+    ws = uuid4()
+    repo = FirestoreBackedCatalogRepository(client=fake_firestore)
+    service = CatalogService(repo, blob_repo=None)
+    await service.create_product(ws, ProductCreate(sku="DUP-1", name="First", case_units=6))
+    docs_before = dict(fake_firestore.docs)
+
+    with pytest.raises(ApiError):
+        await service.create_product(ws, ProductCreate(sku="DUP-1", name="Second", case_units=6))
+    assert fake_firestore.docs == docs_before
+
+
+async def test_failed_update_restores_previous_in_memory_state(fake_firestore):
+    ws = uuid4()
+    repo = FirestoreBackedCatalogRepository(client=fake_firestore)
+    original = f.product(ws, sku="SKU-OLD")
+    await repo.create_product(original)
+    fake_firestore.fail_writes = True
+
+    with pytest.raises(ServiceUnavailable):
+        await repo.update_product(original.model_copy(update={"sku": "SKU-NEW", "version": 2}))
+
+    assert await repo.get_product(ws, original.id) == original
+    assert await repo.get_product_by_sku(ws, "SKU-OLD") == original
+    assert await repo.get_product_by_sku(ws, "SKU-NEW") is None
+
+
+async def test_failed_policy_version_create_restores_both_indexes(fake_firestore):
+    ws = uuid4()
+    repo = FirestoreBackedPolicyRepository(client=fake_firestore)
+    pv = f.policy_version(uuid4())
+    fake_firestore.fail_writes = True
+    with pytest.raises(ServiceUnavailable):
+        await repo.create_policy_version(ws, pv)
+    assert await repo.get_policy_version(ws, pv.promotion_id, pv.version) is None
+    assert await repo.get_policy_version_by_id(ws, pv.id) is None
+
+
+async def test_failed_policy_reference_add_restores_memory(fake_firestore):
+    ws, product_id = uuid4(), uuid4()
+    repo = FirestoreBackedCatalogRepository(client=fake_firestore)
+    fake_firestore.fail_writes = True
+    with pytest.raises(ServiceUnavailable):
+        await repo.add_active_policy_product_reference(ws, product_id)
+    assert not await repo.has_active_policy_product_reference(ws, product_id)
+
+
+async def test_failed_store_write_leaves_no_orphan_backroom(fake_firestore, monkeypatch):
+    ws = uuid4()
+    repo = FirestoreBackedCatalogRepository(client=fake_firestore)
+    backroom = f.location(ws, code="BR-9")
+    store = f.store(ws, code="S-9", backroom_id=backroom.id)
+    original_apply = fake_firestore.apply_set
+
+    def fail_store_writes(path, data, merge):
+        if path[0] == "stores":
+            raise ServiceUnavailable("Fake Firestore: stores unavailable")
+        original_apply(path, data, merge)
+
+    monkeypatch.setattr(fake_firestore, "apply_set", fail_store_writes)
+
+    with pytest.raises(ServiceUnavailable):
+        await repo.create_store_with_backroom(store, backroom)
+
+    assert fake_firestore.docs == {}
+    assert await repo.get_store(ws, store.id) is None
+    assert await repo.get_location(ws, backroom.id) is None
+    assert await repo.get_location_by_code(ws, "BR-9") is None

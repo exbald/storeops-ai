@@ -14,15 +14,49 @@ Document layout: one collection per entity type, doc id = entity id:
 The payload is a JSON string so arbitrary contract models (nested arrays, deep
 maps) stay within Firestore value and index-entry limits.
 
-Writes are awaited and errors propagate: a failed write fails the request.
+Write ordering: the in-memory mutation runs FIRST (it applies the repository's
+invariants), then the entity is persisted. If persisting raises, the in-memory
+change is reverted from an UndoLog and the error propagates, so the request fails
+and neither memory nor Firestore holds the rejected change.
 """
 
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+ResultT = TypeVar("ResultT")
+
+_MISSING = object()
+
+
+class UndoLog:
+    """Prior values of dict keys / set members, captured before a mutation."""
+
+    def __init__(self) -> None:
+        self._entries: list[tuple[dict[Any, Any] | set[Any], Any, Any]] = []
+
+    def track(self, container: dict[Any, Any] | set[Any], key: Any) -> "UndoLog":
+        if isinstance(container, dict):
+            previous = container.get(key, _MISSING)
+        else:
+            previous = key if key in container else _MISSING
+        self._entries.append((container, key, previous))
+        return self
+
+    def rollback(self) -> None:
+        for container, key, previous in reversed(self._entries):
+            if isinstance(container, dict):
+                if previous is _MISSING:
+                    container.pop(key, None)
+                else:
+                    container[key] = previous
+            elif previous is _MISSING:
+                container.discard(key)
+            else:
+                container.add(key)
 
 
 def default_firestore_client(project_id: str | None) -> Any:
@@ -83,3 +117,18 @@ class FirestoreWriteThrough:
 
     async def _load_entities(self) -> None:
         raise NotImplementedError
+
+    async def _write_through(
+        self,
+        undo: UndoLog,
+        mutate: Callable[[], Awaitable[ResultT]],
+        persist: Callable[[ResultT], Awaitable[None]],
+    ) -> ResultT:
+        """Mutate memory (validates), then persist; revert memory if persisting fails."""
+        result = await mutate()
+        try:
+            await persist(result)
+        except BaseException:
+            undo.rollback()
+            raise
+        return result
