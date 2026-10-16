@@ -3,8 +3,9 @@ import "./globals.css";
 import { AuthProvider } from "../lib/auth-context";
 
 export const metadata = {
-  title: "StoreOps - Autonomous Retail Operations Intelligence",
-  description: "Autonomous retail operations intelligence platform with multimodal vision verification.",
+  title: "StoreOps AI: retail promotions, verified",
+  description:
+    "StoreOps finds why a promotion is failing in a store, helps the rep fix it, and verifies the fix from shelf photos.",
 };
 
 export default function RootLayout({

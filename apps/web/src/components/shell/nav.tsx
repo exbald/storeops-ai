@@ -12,12 +12,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { href: "/home", label: "Home", adminOnly: false },
   { href: "/setup", label: "Setup", adminOnly: true },
   { href: "/stores", label: "Stores", adminOnly: false },
   { href: "/catalog", label: "Catalog & Products", adminOnly: true },
   { href: "/imports", label: "CSV Imports", adminOnly: true },
   { href: "/promotions", label: "Promotions & Policy", adminOnly: true },
-  { href: "/guide", label: "User Guide", adminOnly: false },
+  { href: "/guide", label: "Guide", adminOnly: false },
 ];
 
 export function Nav() {
@@ -27,7 +28,7 @@ export function Nav() {
   return (
     <nav className="bg-white border-b border-gray-200" aria-label="Main Navigation">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex space-x-8 overflow-x-auto py-2 scrollbar-none">
+        <div className="flex gap-1 sm:gap-4 overflow-x-auto py-2 scrollbar-none">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
             const isRestricted = item.adminOnly && !isAdmin;
