@@ -8,7 +8,7 @@ Brands pay retailers for shelf placement during promotions, but nobody can easil
 |---|---|
 | **Live app** | https://storeops-web-967137522464.asia-southeast1.run.app |
 | **Demo video** | [youtu.be/KR8Y7qN2x9w](https://youtu.be/KR8Y7qN2x9w) (3:14) |
-| **Deck (PDF)** | DECK_LINK |
+| **Deck (PDF)** | [docs/StoreOps_AI_deck.pdf](docs/StoreOps_AI_deck.pdf) |
 | **Theme** | Retail & Commerce: Intelligent Customer and Business Experiences |
 | **Team** | Nikolay Bandura, Ashley Bandura |
 
