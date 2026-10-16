@@ -6,23 +6,20 @@ import { useAuth } from "../lib/auth-context";
 
 export default function RootPage() {
   const router = useRouter();
-  const { user, isUnprovisioned, isAdmin } = useAuth();
+  const { user, isUnprovisioned, isLoading } = useAuth();
 
   useEffect(() => {
-    if (!user) {
+    if (isLoading) return;
+    if (!user || isUnprovisioned) {
       router.replace("/sign-in");
-    } else if (isUnprovisioned) {
-      router.replace("/sign-in");
-    } else if (isAdmin) {
-      router.replace("/setup");
     } else {
-      router.replace("/stores");
+      router.replace("/home");
     }
-  }, [user, isUnprovisioned, isAdmin, router]);
+  }, [user, isUnprovisioned, isLoading, router]);
 
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <p className="text-sm text-gray-500 animate-pulse">Redirecting to workspace...</p>
+      <p className="text-sm text-gray-500 animate-pulse">Loading workspace…</p>
     </div>
   );
 }
