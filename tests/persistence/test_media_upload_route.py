@@ -125,3 +125,11 @@ def test_download_route_reads_via_port(blob_repo, client):
     blob_repo.stored[media_id] = b"abc"
     assert client.get(f"/media/download/{media_id}").content == b"abc"
     assert client.get(f"/media/download/{uuid4()}").status_code == 404
+
+
+async def test_download_route_serves_the_media_mime_type(blob_repo, catalog, client):
+    med = await _pending(catalog, byte_size=3, status=Status1.READY)
+    blob_repo.stored[med.id] = b"abc"
+    resp = client.get(f"/media/download/{med.id}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith(med.mime_type)

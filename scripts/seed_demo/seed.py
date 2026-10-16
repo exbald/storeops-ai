@@ -161,10 +161,9 @@ async def seed_workspace(
 
     sales_path = base_dir / manifest["imports"]["sales_csv"]
     inv_path = base_dir / manifest["imports"]["inventory_csv"]
-    before_path = base_dir / manifest["media"]["shelf_before"]
     agreement_path = base_dir / manifest["policies"]["agreement_pdf"]
 
-    for p in (sales_path, inv_path, before_path, agreement_path):
+    for p in (sales_path, inv_path, agreement_path):
         if not p.exists():
             raise FileNotFoundError(f"Required demo fixture missing: {p}")
 
@@ -443,14 +442,15 @@ async def seed_workspace(
         else:
             promo_version += 1
 
-    # 7. Store visits: a completed example and an open one to try (create or reuse by notes)
+    # 7. Store visits: a completed example and an open one to try (create or reuse by notes).
+    # Shelf photos are not seeded: the investigator treats photos older than 30 minutes as
+    # stale, so they are uploaded right before an investigation (in the app or --with-ai).
     visits_res = await client.get(f"/visits?store_id={store_id}", headers=headers)
     if visits_res.status_code != 200:
         raise RuntimeError(f"Failed to list visits: {visits_res.status_code} {visits_res.text}")
     existing_visits = {v.get("notes"): v for v in visits_res.json().get("items", [])}
 
     visit_ids: dict[str, str] = {}
-    before_media_ids: dict[str, str] = {}
     for visit_key, visit_cfg in manifest["visits"].items():
         existing = existing_visits.get(visit_cfg["notes"])
         if existing:
@@ -470,19 +470,6 @@ async def seed_workspace(
                 )
             visit_ids[visit_key] = create_visit_res.json()["id"]
 
-        # 8. Before photo bound to this visit. After photos must be captured within
-        # 30 minutes of verification, so they are uploaded only when verifying.
-        before_media_ids[visit_key] = await upload_demo_media(
-            client,
-            before_path,
-            kind="VISIT_BEFORE",
-            headers=headers,
-            store_id=store_id,
-            zone_id=store_config["zone_id"],
-            zone_kind=store_config["zone_kind"],
-            captured_at=visit_cfg["captured_at"],
-            visit_id=visit_ids[visit_key],
-        )
 
     return {
         "status": "SUCCESS",
@@ -499,8 +486,6 @@ async def seed_workspace(
         "agreement_media_id": str(agreement_media_id) if agreement_media_id else None,
         "visit_id": visit_ids["try"],
         "example_visit_id": visit_ids["example"],
-        "shelf_before_media_id": before_media_ids["try"],
-        "example_shelf_before_media_id": before_media_ids["example"],
     }
 
 

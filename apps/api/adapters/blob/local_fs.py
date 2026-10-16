@@ -44,4 +44,4 @@ class LocalFileSystemBlobRepository(BlobRepository):
         return path.read_bytes()
 
     async def get_download_url(self, media_id: UUID, expires_in_seconds: int = 600) -> str:
-        return f"{self.base_url}/{media_id}?expires={expires_in_seconds}"
+        return f"{self.base_url}/download/{media_id}?expires={expires_in_seconds}"

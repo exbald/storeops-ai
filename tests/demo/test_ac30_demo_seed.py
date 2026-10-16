@@ -13,6 +13,7 @@ Verifies:
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -117,6 +118,14 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
         "X-Workspace-Id": str(workspace_id),
     }
 
+    media_kinds: list[str] = []
+
+    async def record_media_init(request):
+        if request.method == "POST" and request.url.path == "/media":
+            media_kinds.append(json.loads(request.content)["kind"])
+
+    demo_client.event_hooks["request"].append(record_media_init)
+
     # Run 1: First seed execution
     result_run1 = await seed_workspace(demo_client, workspace_id, admin_headers)
     assert result_run1["status"] == "SUCCESS"
@@ -130,8 +139,6 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
         "example_visit_id",
         "sales_import_id",
         "inventory_import_id",
-        "shelf_before_media_id",
-        "example_shelf_before_media_id",
     ):
         assert result_run1[key] is not None, key
     assert result_run1["promotion_version"] == 2  # draft (1) + approved (2)
@@ -182,16 +189,11 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
     assert visits_res.status_code == 200
     assert len(visits_res.json()["items"]) == 2
 
-    # Before photos are bound to their own visit; after photos are uploaded at verification time
-    for visit_key, media_key in (
-        ("visit_id", "shelf_before_media_id"),
-        ("example_visit_id", "example_shelf_before_media_id"),
-    ):
-        media = await demo_client.get(f"/media/{result_run1[media_key]}", headers=admin_headers)
-        assert media.status_code == 200
-        assert media.json()["status"] == "READY"
-        assert media.json()["kind"] == "VISIT_BEFORE"
-        assert media.json()["visit_id"] == result_run1[visit_key]
+    # Photos are not pre-seeded: the investigator treats photos older than 30 minutes
+    # as stale, so before photos are uploaded right before an investigation runs.
+    for visit in visits_res.json()["items"]:
+        assert visit["status"] == "OPEN"
+    assert set(media_kinds) <= {"IMPORT", "AGREEMENT"}
 
 
 @pytest.mark.asyncio
@@ -210,8 +212,8 @@ async def test_ac30_seed_reruns_across_workspaces_without_key_conflicts(demo_cli
         demo_client, second, {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(second)}
     )
     assert result_second["status"] == "SUCCESS"
-    assert result_second["shelf_before_media_id"] != result_first["shelf_before_media_id"]
     assert result_second["agreement_media_id"] != result_first["agreement_media_id"]
+    assert result_second["visit_id"] != result_first["visit_id"]
 
 
 @pytest.mark.asyncio
