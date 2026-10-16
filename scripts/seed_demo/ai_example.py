@@ -22,6 +22,11 @@ JOB_TIMEOUT_SECONDS = 240
 TERMINAL_JOB_STATES = ("SUCCEEDED", "FAILED", "CANCELLED")
 
 
+def now_iso() -> str:
+    """Capture time for freshly uploaded demo photos; the API rejects stale captures."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 async def wait_for_job(client: httpx.AsyncClient, headers: dict[str, str], job_id: str) -> dict:
     """Poll a job until it reaches a terminal state; a failed job raises."""
     deadline = asyncio.get_running_loop().time() + JOB_TIMEOUT_SECONDS
@@ -72,7 +77,7 @@ async def verify_with_photo(
         store_id=seed_result["store_id"],
         zone_id=zone[0],
         zone_kind=zone[1],
-        captured_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        captured_at=now_iso(),
         visit_id=seed_result["example_visit_id"],
     )
     inv = await get_json(client, headers, f"/investigations/{investigation_id}")
@@ -102,6 +107,19 @@ async def complete_example_visit(
     if existing.get("items"):
         return {"status": "IN_PROGRESS_LEFT_AS_IS", "investigation_id": existing["items"][0]["id"]}
 
+    store_cfg = json.loads((fixtures_dir / "manifest.json").read_text(encoding="utf-8"))["store"]
+    zone = (store_cfg["zone_id"], store_cfg["zone_kind"])
+    before_media_id = await upload_demo_media(
+        client,
+        fixtures_dir / "media" / "shelf_before.jpg",
+        kind="VISIT_BEFORE",
+        headers=headers,
+        store_id=seed_result["store_id"],
+        zone_id=zone[0],
+        zone_kind=zone[1],
+        captured_at=now_iso(),
+        visit_id=visit_id,
+    )
     job = await post_command(
         client,
         headers,
@@ -110,7 +128,7 @@ async def complete_example_visit(
             "store_id": seed_result["store_id"],
             "visit_id": visit_id,
             "promotion_id": seed_result["promotion_id"],
-            "media_ids": [seed_result["example_shelf_before_media_id"]],
+            "media_ids": [before_media_id],
         },
         expected=(202,),
     )
@@ -130,8 +148,6 @@ async def complete_example_visit(
         "fail": fixtures_dir / "media" / "shelf_after_fail.jpg",
         "pass": fixtures_dir / "media" / "shelf_after.jpg",
     }
-    store_cfg = json.loads((fixtures_dir / "manifest.json").read_text(encoding="utf-8"))["store"]
-    zone = (store_cfg["zone_id"], store_cfg["zone_kind"])
     after_fail = await verify_with_photo(client, headers, seed_result, investigation_id, manifest_media["fail"], zone)
     after_pass = await verify_with_photo(client, headers, seed_result, investigation_id, manifest_media["pass"], zone)
 

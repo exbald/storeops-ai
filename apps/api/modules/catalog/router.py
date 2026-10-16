@@ -511,10 +511,13 @@ async def _read_body_capped(request: Request, limit: int) -> bytes:
 async def download_local_media_bytes(
     media_id: UUID,
     blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
+    catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
 ) -> Response:
+    media = await catalog_repo.get_media_by_id(media_id)
+    media_type = media.mime_type if media else "application/octet-stream"
     try:
         content = await blob_repo.read_bytes(media_id)
-        return Response(content=content, media_type="application/octet-stream")
+        return Response(content=content, media_type=media_type)
     except FileNotFoundError:
         return Response(status_code=404)
 
