@@ -622,6 +622,56 @@ export class StoreOpsClient {
     });
   }
 
+  async getPromotion(promotionId: string): Promise<Promotion> {
+    if (this.useDoubles) {
+      const promo = this.doublePromotions.find((p) => p.id === promotionId);
+      if (!promo) throw new ApiRequestError(404, "NOT_FOUND", "Promotion not found");
+      return { ...promo };
+    }
+    return this.fetch<Promotion>(`/promotions/${promotionId}`);
+  }
+
+  async updatePromotion(promotionId: string, data: Schemas["PromotionUpdate"]): Promise<Promotion> {
+    if (this.useDoubles) {
+      const idx = this.doublePromotions.findIndex((p) => p.id === promotionId);
+      if (idx === -1) throw new ApiRequestError(404, "NOT_FOUND", "Promotion not found");
+      const current = this.doublePromotions[idx];
+      if (current.version !== data.expected_version) {
+        throw new VersionConflictError("Promotion has been modified concurrently. Expected version mismatch.");
+      }
+      const { expected_version: _ignored, ...changes } = data;
+      const updated: Promotion = {
+        ...current,
+        ...changes,
+        version: current.version + 1,
+        draft_revision: current.draft_revision + 1,
+        updated_at: new Date().toISOString(),
+      };
+      this.doublePromotions = this.doublePromotions.map((p, i) => (i === idx ? updated : p));
+      return updated;
+    }
+    return this.fetch<Promotion>(`/promotions/${promotionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async extractPolicy(promotionId: string, data: Schemas["VersionCommand"]): Promise<Job> {
+    if (this.useDoubles) {
+      // Extraction needs the live API and Gemini; doubles never fabricate proposed rules.
+      throw new ApiRequestError(
+        501,
+        "EXTRACTION_UNAVAILABLE",
+        "Rule extraction needs the live StoreOps API. It is not available with test doubles."
+      );
+    }
+    // Path per contracts/openapi.json: POST /promotions/{promotion_id}/extract (202 Job)
+    return this.fetch<Job>(`/promotions/${promotionId}/extract`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
   async approvePolicy(promotionId: string, data: ApprovePolicy): Promise<PolicyVersion> {
     if (this.useDoubles) {
       const promo = this.doublePromotions.find((p) => p.id === promotionId);

@@ -1,170 +1,118 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "../../../lib/auth-context";
-import { apiClient, VersionConflictError } from "../../../lib/api-client";
-import { generateUuid } from "../../../lib/doubles";
-import type { Promotion, Store, Product, Rule } from "@storeops/contracts";
+import { apiClient } from "../../../lib/api-client";
+import type { Promotion, Store } from "@storeops/contracts";
 import { Table, Column } from "../../../components/ui/table";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { Modal } from "../../../components/ui/modal";
-import { Select } from "../../../components/ui/select";
+import { AgreementFilePicker } from "../../../components/promotions/agreement-file-picker";
+import { uploadAgreementPdf } from "../../../components/promotions/agreement-upload";
+
+const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
 export default function PromotionsPage() {
   const { isAdmin } = useAuth();
+  const router = useRouter();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [promotionsError, setPromotionsError] = useState<string | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [globalAlert, setGlobalAlert] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [storesError, setStoresError] = useState<string | null>(null);
+  const [storesLoaded, setStoresLoaded] = useState(false);
 
-  // New Promotion Modal
+  // Create form
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [promoName, setPromoName] = useState("");
-  const [startsOn, setStartsOn] = useState("2026-10-01");
-  const [endsOn, setEndsOn] = useState("2026-10-31");
+  const [startsOn, setStartsOn] = useState("");
+  const [endsOn, setEndsOn] = useState("");
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+  const [agreementFile, setAgreementFile] = useState<File | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
+  const [createStep, setCreateStep] = useState<string | null>(null);
 
-  // Policy Review / Approval Modal
-  const [activeReviewPromo, setActiveReviewPromo] = useState<Promotion | null>(null);
-  const [rules, setRules] = useState<Rule[]>([]);
-  const [approvalError, setApprovalError] = useState<string | null>(null);
-  const [isApproving, setIsApproving] = useState(false);
-
-  const loadData = async () => {
-    setLoading(true);
+  const loadPromotions = useCallback(async () => {
     try {
-      const [promoRes, storeRes, prodRes] = await Promise.all([
-        apiClient.listPromotions(),
-        apiClient.listStores(),
-        apiClient.listProducts(),
-      ]);
-      setPromotions(promoRes.items);
-      setStores(storeRes.items);
-      setProducts(prodRes.items);
-      if (storeRes.items.length > 0) {
-        setSelectedStoreIds([storeRes.items[0].id]);
-      }
+      const res = await apiClient.listPromotions();
+      setPromotions(res.items);
+      setPromotionsError(null);
     } catch (err) {
-      console.error("Failed to load promotions:", err);
-    } finally {
-      setLoading(false);
+      setPromotionsError(errorText(err, "Failed to load promotions"));
     }
-  };
+  }, []);
+
+  const loadStores = useCallback(async () => {
+    try {
+      const res = await apiClient.listStores();
+      const active = res.items.filter((s) => s.active);
+      setStores(active);
+      setStoresError(null);
+      setSelectedStoreIds((prev) => (prev.length > 0 || active.length === 0 ? prev : [active[0].id]));
+    } catch (err) {
+      setStoresError(errorText(err, "Failed to load stores"));
+    } finally {
+      setStoresLoaded(true);
+    }
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadPromotions();
+    loadStores();
+  }, [loadPromotions, loadStores]);
+
+  const openCreate = () => {
+    setCreateError(null);
+    setIsCreateOpen(true);
+    if (stores.length === 0) loadStores();
+  };
+
+  const toggleStore = (storeId: string, on: boolean) =>
+    setSelectedStoreIds((prev) => (on ? [...prev, storeId] : prev.filter((id) => id !== storeId)));
 
   const handleCreatePromo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedStoreIds.length === 0) {
-      setCreateError("At least one store must be selected.");
-      return;
-    }
-    setIsCreating(true);
+    if (!promoName.trim()) return setCreateError("Enter a promotion name.");
+    if (!startsOn || !endsOn) return setCreateError("Enter start and end dates.");
+    if (startsOn > endsOn) return setCreateError("The start date must be on or before the end date.");
+    if (selectedStoreIds.length === 0) return setCreateError("Select at least one store.");
+
     setCreateError(null);
     try {
-      await apiClient.createPromotion({
-        name: promoName,
+      let agreementMediaId: string | null = null;
+      if (agreementFile) {
+        setCreateStep("Uploading agreement...");
+        agreementMediaId = (await uploadAgreementPdf(agreementFile)).id;
+      }
+      setCreateStep("Creating promotion...");
+      const created = await apiClient.createPromotion({
+        name: promoName.trim(),
         starts_on: startsOn,
         ends_on: endsOn,
         store_ids: selectedStoreIds,
-        agreement_media_id: null,
+        agreement_media_id: agreementMediaId,
       });
       setIsCreateOpen(false);
-      setPromoName("");
-      setGlobalAlert({
-        type: "success",
-        message: "Promotion draft created successfully.",
-      });
-      await loadData();
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setCreateError(err.message);
-      } else {
-        setCreateError("Failed to create promotion.");
-      }
+      router.push(`/promotions/${created.id}`);
+    } catch (err) {
+      setCreateError(errorText(err, "Failed to create promotion."));
     } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const openReviewModal = async (promo: Promotion) => {
-    setActiveReviewPromo(promo);
-    setApprovalError(null);
-    try {
-      const versionsRes = await apiClient.listPolicyVersions(promo.id);
-      if (versionsRes.items.length > 0) {
-        setRules(versionsRes.items[0].rules);
-      } else {
-        // Mock extracted draft rules from vendor agreement with valid UUIDs
-        const defaultProd = products[0]?.id || "00000000-0000-0000-0000-000000000031";
-        setRules([
-          {
-            rule_id: generateUuid(),
-            kind: "MIN_FACINGS",
-            zone_id: "shelf-eye-level",
-            zone_kind: "SHELF",
-            product_id: defaultProd,
-            min_facings: 3,
-            source: {
-              kind: "DOCUMENT",
-              media_id: generateUuid(),
-              page: 2,
-              quote: "Retailer agrees to maintain a minimum of 3 facings on primary display shelf.",
-              reviewer_note: null,
-            },
-          },
-        ]);
-      }
-    } catch {
-      setRules([]);
-    }
-  };
-
-  const handleApprovePolicy = async () => {
-    if (!activeReviewPromo) return;
-    setIsApproving(true);
-    setApprovalError(null);
-
-    try {
-      const catalogIds = products.map((p) => p.id);
-      await apiClient.approvePolicy(activeReviewPromo.id, {
-        expected_version: activeReviewPromo.version,
-        catalog_product_ids: catalogIds.length > 0 ? catalogIds : ["00000000-0000-0000-0000-000000000031"],
-        rules: rules,
-      });
-      setActiveReviewPromo(null);
-      setGlobalAlert({
-        type: "success",
-        message: "Promotion policy approved and locked.",
-      });
-      await loadData();
-    } catch (err: unknown) {
-      if (err instanceof VersionConflictError) {
-        setApprovalError("Version Conflict: " + err.message + " Please refresh the promotion record.");
-      } else if (err instanceof Error) {
-        setApprovalError(err.message);
-      } else {
-        setApprovalError("Failed to approve merchandising policy.");
-      }
-    } finally {
-      setIsApproving(false);
+      setCreateStep(null);
     }
   };
 
   const columns: Column<Promotion>[] = [
     {
       key: "name",
-      header: "Promotion Name",
+      header: "Promotion",
       render: (p) => (
         <div>
-          <div className="font-semibold text-gray-900">{p.name}</div>
+          <Link href={`/promotions/${p.id}`} className="font-semibold text-blue-700 hover:underline">
+            {p.name}
+          </Link>
           <div className="text-xs text-gray-500">
             {p.starts_on} &rarr; {p.ends_on}
           </div>
@@ -173,242 +121,160 @@ export default function PromotionsPage() {
     },
     {
       key: "scope",
-      header: "Store Scope",
+      header: "Stores",
       render: (p) => (
         <span className="text-xs font-medium text-gray-700">
-          {p.store_ids.length} store{p.store_ids.length !== 1 ? "s" : ""} included
+          {p.store_ids.length} store{p.store_ids.length !== 1 ? "s" : ""}
         </span>
       ),
     },
     {
-      key: "policy_status",
-      header: "Policy Status",
+      key: "agreement",
+      header: "Agreement",
       render: (p) => (
-        <Badge
-          variant={p.approved_policy ? "success" : "warning"}
-          labelPrefix="Policy Status:"
-        >
-          {p.approved_policy ? "Policy Approved" : "Draft / Needs Approval"}
-        </Badge>
+        <span className="text-xs text-gray-700">{p.agreement_media_id ? "Uploaded" : "Not uploaded"}</span>
       ),
     },
     {
-      key: "version",
-      header: "Record Version",
-      render: (p) => <span className="font-mono text-xs text-gray-400">v{p.version}</span>,
+      key: "policy_status",
+      header: "Policy",
+      render: (p) => (
+        <Badge variant={p.approved_policy ? "success" : "warning"} labelPrefix="Policy status:">
+          {p.approved_policy
+            ? `Approved v${p.approved_policy.version}`
+            : p.extracted_rules.length > 0
+              ? "Draft, rules to review"
+              : "Draft"}
+        </Badge>
+      ),
     },
     {
       key: "actions",
       header: "Actions",
       className: "text-right",
       render: (p) => (
-        <div className="flex items-center justify-end gap-2">
-          {isAdmin && (
-            <Button size="sm" variant={p.approved_policy ? "outline" : "primary"} onClick={() => openReviewModal(p)}>
-              {p.approved_policy ? "View Policy" : "Review & Approve"}
-            </Button>
-          )}
-        </div>
+        <Link
+          href={`/promotions/${p.id}`}
+          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          {p.approved_policy ? "View policy" : "Review rules"}
+        </Link>
       ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Global accessible feedback banner */}
-      {globalAlert && (
-        <div
-          role={globalAlert.type === "error" ? "alert" : "status"}
-          className={`p-4 rounded-md border text-sm flex items-start justify-between ${
-            globalAlert.type === "error"
-              ? "bg-red-50 border-red-200 text-red-800"
-              : "bg-green-50 border-green-200 text-green-800"
-          }`}
-        >
-          <div>{globalAlert.message}</div>
-          <button
-            onClick={() => setGlobalAlert(null)}
-            className="ml-4 font-bold text-xs underline hover:no-underline"
-            aria-label="Dismiss notification"
-          >
-            Dismiss
-          </button>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Promotions</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Upload a vendor agreement, let Gemini propose shelf rules, then approve the ones that apply.
+          </p>
+        </div>
+        {isAdmin && <Button onClick={openCreate}>Create promotion</Button>}
+      </div>
+
+      {promotionsError && (
+        <div role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Failed to load promotions: {promotionsError}
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Promotions & Merchandising Policy</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Vendor trade agreements, multimodal rule extraction, and compliance planogram approval.
-          </p>
-        </div>
-        {isAdmin && (
-          <Button onClick={() => setIsCreateOpen(true)}>
-            Create Promotion
-          </Button>
-        )}
-      </div>
-
-      {/* Promotions Table */}
       <Table
         columns={columns}
         data={promotions}
         keyExtractor={(p) => p.id}
-        emptyMessage="No promotions or agreements registered. Create your first promotion to extract policy rules."
-        caption="Merchandising promotions and agreements"
+        emptyMessage="No promotions yet. Create one and attach its vendor agreement."
+        caption="Promotions and their policy status"
       />
 
-      {/* Create Promotion Modal */}
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        title="Create New Promotion"
-        description="Establish campaign dates, target stores, and vendor contract."
+        title="Create promotion"
+        description="Set the dates and stores, and attach the vendor agreement if you have it."
       >
-        <form onSubmit={handleCreatePromo} className="space-y-4">
+        <form onSubmit={handleCreatePromo} className="space-y-4" aria-label="Create promotion">
           {createError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+            <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {createError}
             </div>
           )}
 
           <Input
-            label="Promotion Name"
+            label="Promotion name"
+            name="promotion-name"
             required
             value={promoName}
             onChange={(e) => setPromoName(e.target.value)}
-            placeholder="e.g. Q4 Carbonated Drinks Feature"
+            placeholder="e.g. AquaPure endcap, November"
           />
 
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Start Date"
-              type="date"
-              required
-              value={startsOn}
-              onChange={(e) => setStartsOn(e.target.value)}
-            />
-            <Input
-              label="End Date"
-              type="date"
-              required
-              value={endsOn}
-              onChange={(e) => setEndsOn(e.target.value)}
-            />
+            <Input label="Start date" name="starts-on" type="date" required value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+            <Input label="End date" name="ends-on" type="date" required value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-gray-700">
-              Target Stores
-            </label>
-            <div className="max-h-32 overflow-y-auto border border-gray-300 rounded p-2 space-y-1">
+          <fieldset className="space-y-1">
+            <legend className="block text-sm font-medium text-gray-700">Target stores</legend>
+            <div className="max-h-32 space-y-1 overflow-y-auto rounded border border-gray-300 p-2" data-testid="store-options">
+              {storesError && (
+                <p className="text-xs text-red-700">
+                  Could not load stores: {storesError}{" "}
+                  <button type="button" className="underline" onClick={loadStores}>
+                    Retry
+                  </button>
+                </p>
+              )}
+              {!storesError && !storesLoaded && <p className="text-xs text-gray-500">Loading stores...</p>}
+              {!storesError && storesLoaded && stores.length === 0 && (
+                <p className="text-xs text-gray-600">
+                  No active stores. <Link href="/stores" className="underline">Add a store</Link> first.
+                </p>
+              )}
               {stores.map((s) => (
-                <label key={s.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <label key={s.id} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
                   <input
                     type="checkbox"
                     checked={selectedStoreIds.includes(s.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedStoreIds([...selectedStoreIds, s.id]);
-                      } else {
-                        setSelectedStoreIds(selectedStoreIds.filter((id) => id !== s.id));
-                      }
-                    }}
+                    onChange={(e) => toggleStore(s.id, e.target.checked)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span>{s.name} ({s.code})</span>
+                  <span>
+                    {s.name} ({s.code})
+                  </span>
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setIsCreateOpen(false)}
-            >
+          <AgreementFilePicker
+            label="Agreement PDF (optional)"
+            selectedName={agreementFile?.name ?? null}
+            disabled={Boolean(createStep)}
+            onSelect={(file) => {
+              setCreateError(null);
+              setAgreementFile(file);
+            }}
+            onError={setCreateError}
+          />
+
+          <div className="flex items-center justify-end gap-3 border-t border-gray-200 pt-4">
+            {createStep && (
+              <span role="status" className="mr-auto text-xs text-gray-600">
+                {createStep}
+              </span>
+            )}
+            <Button type="button" variant="secondary" onClick={() => setIsCreateOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              isLoading={isCreating}
-            >
-              Create Draft Promotion
+            <Button type="submit" isLoading={Boolean(createStep)}>
+              Create promotion
             </Button>
           </div>
         </form>
       </Modal>
-
-      {/* Review & Approve Policy Modal */}
-      {activeReviewPromo && (
-        <Modal
-          isOpen={Boolean(activeReviewPromo)}
-          onClose={() => setActiveReviewPromo(null)}
-          title={`Merchandising Policy Approval: ${activeReviewPromo.name}`}
-          description={`Record version: v${activeReviewPromo.version} - Review extracted compliance rules prior to approval.`}
-        >
-          <div className="space-y-4">
-            {approvalError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                {approvalError}
-              </div>
-            )}
-
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-              <span className="font-semibold">Grounding Verification:</span> Rules below are extracted from vendor
-              contracts with page citations and verbatim text quotes. Approving creates a formal, immutable policy version
-              used by multimodal vision models to verify shelf compliance during audit visits.
-            </div>
-
-            <div className="space-y-3 max-h-60 overflow-y-auto">
-              {rules.map((rule, idx) => {
-                const prod = products.find((p) => p.id === rule.product_id);
-                return (
-                  <div key={rule.rule_id || idx} className="p-3 bg-gray-50 border border-gray-200 rounded text-sm space-y-1">
-                    <div className="flex justify-between items-start">
-                      <span className="font-semibold text-gray-900">
-                        {rule.kind} &bull; {rule.zone_kind} ({rule.zone_id})
-                      </span>
-                      {rule.min_facings && (
-                        <Badge variant="info">Min Facings: {rule.min_facings}</Badge>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      Product: <span className="font-mono">{prod?.name || rule.product_id}</span>
-                    </div>
-                    {rule.source?.quote && (
-                      <blockquote className="text-xs italic text-gray-500 border-l-2 border-gray-300 pl-2 mt-1">
-                        &ldquo;{rule.source.quote}&rdquo; (Page {rule.source.page})
-                      </blockquote>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setActiveReviewPromo(null)}
-              >
-                Close
-              </Button>
-              {isAdmin && !activeReviewPromo.approved_policy && (
-                <Button
-                  onClick={handleApprovePolicy}
-                  isLoading={isApproving}
-                >
-                  Approve & Activate Policy
-                </Button>
-              )}
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
