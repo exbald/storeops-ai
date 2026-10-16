@@ -173,6 +173,18 @@ def test_worker_iam_and_scheduler_specs():
     assert "/health" in sched_data.get("httpTarget", {}).get("uri", "")
 
 
+def test_api_media_url_signing_key_comes_from_secret_manager():
+    """The API's MEDIA_URL_SIGNING_KEY is a Secret Manager reference, never a plain env var."""
+    script = DEPLOY_SH.read_text(encoding="utf-8")
+    api_block = script.split("gcloud run deploy storeops-api", 1)[1].split("--quiet", 1)[0]
+    assert (
+        '--set-secrets="MEDIA_URL_SIGNING_KEY=${MEDIA_URL_SIGNING_SECRET}:latest"' in api_block
+    )
+    assert 'MEDIA_URL_SIGNING_SECRET="storeops-media-url-signing-key"' in script
+    env_vars = api_block.split("--set-env-vars=", 1)[1]
+    assert "MEDIA_URL_SIGNING_KEY" not in env_vars
+
+
 def test_terraform_files_syntax():
     """AC-41: Terraform configuration files must exist with required resource definitions."""
     main_tf = INFRA_DIR / "main.tf"
