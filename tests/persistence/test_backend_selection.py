@@ -1,6 +1,7 @@
 """Adapter selection from settings: cloud adapters on CLOUD config, local otherwise, no silent fallback."""
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -42,6 +43,7 @@ def _cloud(**overrides: Any) -> Settings:
             "media_bucket": "storeops-test-media",
             "gcp_project": "storeops-ai",
             "bigquery_dataset": "storeops_dev",
+            "media_url_signing_key": "s" * 32,
             **overrides,
         }
     )
@@ -65,7 +67,10 @@ def test_settings_read_cloud_env_vars(monkeypatch):
     monkeypatch.setenv("MEDIA_BUCKET", "bucket-from-env")
     monkeypatch.setenv("GCP_PROJECT", "proj-from-env")
     monkeypatch.setenv("BIGQUERY_DATASET", "ds_from_env")
+    monkeypatch.setenv("MEDIA_URL_SIGNING_KEY", "key-from-env")
     s = Settings()
+    assert s.media_url_signing_key == "key-from-env"
+    assert "key-from-env" not in repr(s)
     assert (s.data_backend, s.media_bucket, s.gcp_project, s.bigquery_dataset) == (
         "CLOUD",
         "bucket-from-env",
@@ -103,6 +108,26 @@ def test_blob_cloud_profile_without_bucket_raises(fake_storage_client):
         build_blob_repository(
             _cloud(media_bucket=None), storage_client_factory=_Recorder(fake_storage_client)
         )
+
+
+def test_blob_cloud_profile_without_signing_key_raises(fake_storage_client):
+    with pytest.raises(ConfigurationError, match="MEDIA_URL_SIGNING_KEY"):
+        build_blob_repository(
+            _cloud(media_url_signing_key=None),
+            storage_client_factory=_Recorder(fake_storage_client),
+        )
+
+
+def test_blob_repository_signs_with_configured_key(tmp_path):
+    from apps.api.adapters.blob.signing import UPLOAD_METHOD, MediaUrlSigner
+
+    repo = build_blob_repository(
+        _settings(media_storage_dir=str(tmp_path), media_url_signing_key="configured-key")
+    )
+    media_id = uuid4()
+    issued = MediaUrlSigner(b"configured-key").query(UPLOAD_METHOD, media_id, 60)
+    params = dict(pair.split("=") for pair in issued.split("&"))
+    assert repo.verify_signed_url(UPLOAD_METHOD, media_id, params["expires"], params["sig"])
 
 
 # ---------------------------------------------------------------- analytics

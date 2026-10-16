@@ -23,6 +23,7 @@ from storeops_contracts.models import (
     VersionCommand,
 )
 
+from apps.api.adapters.blob.signing import DOWNLOAD_METHOD, UPLOAD_METHOD
 from apps.api.core.auth import (
     WorkspaceContext,
     get_state_repository,
@@ -465,7 +466,11 @@ async def upload_local_media_bytes(
     request: Request,
     blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
     catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
+    expires: Annotated[str | None, Query()] = None,
+    sig: Annotated[str | None, Query()] = None,
 ) -> Response:
+    # No auth header: the signed URL returned by POST /media is the upload grant.
+    _require_signed_url(blob_repo, UPLOAD_METHOD, media_id, expires, sig)
     media = await catalog_repo.get_media_by_id(media_id)
     if media is None:
         raise ApiError(status_code=404, code="NOT_FOUND", message="Media not found")
@@ -478,6 +483,21 @@ async def upload_local_media_bytes(
     body = await _read_body_capped(request, min(media.byte_size, MAX_UPLOAD_BYTES))
     await blob_repo.store_upload(media_id, body)
     return Response(status_code=200)
+
+
+def _require_signed_url(
+    blob_repo: BlobRepository,
+    method: str,
+    media_id: UUID,
+    expires: str | None,
+    sig: str | None,
+) -> None:
+    if not blob_repo.verify_signed_url(method, media_id, expires, sig):
+        raise ApiError(
+            status_code=403,
+            code="FORBIDDEN",
+            message="Media URL signature is missing, invalid or expired",
+        )
 
 
 def _too_large(limit: int) -> ApiError:
@@ -512,7 +532,11 @@ async def download_local_media_bytes(
     media_id: UUID,
     blob_repo: Annotated[BlobRepository, Depends(get_blob_repository)],
     catalog_repo: Annotated[CatalogRepository, Depends(get_catalog_repository)],
+    expires: Annotated[str | None, Query()] = None,
+    sig: Annotated[str | None, Query()] = None,
 ) -> Response:
+    # No auth header (<img src> cannot send one): the signed download_url is the grant.
+    _require_signed_url(blob_repo, DOWNLOAD_METHOD, media_id, expires, sig)
     media = await catalog_repo.get_media_by_id(media_id)
     media_type = media.mime_type if media else "application/octet-stream"
     try:

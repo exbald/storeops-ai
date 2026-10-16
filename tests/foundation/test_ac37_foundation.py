@@ -68,9 +68,11 @@ async def test_ac37_blob_primitives(blob_repo):
 
     # 2. Download URL generation
     url = await blob_repo.get_download_url(media_id, expires_in_seconds=300)
-    assert "expires=300" in url
-    # Points at the byte-serving route so <img src> renders the photo
+    # Points at the byte-serving route so <img src> renders the photo, signed and expiring
     assert f"/media/download/{media_id}?" in url
+    params = dict(pair.split("=") for pair in url.split("?", 1)[1].split("&"))
+    assert 290 <= int(params["expires"]) - int(datetime.now(UTC).timestamp()) <= 300
+    assert blob_repo.verify_signed_url("GET", media_id, params["expires"], params["sig"])
 
     # 3. Oversized asset rejection (> 5MB for image)
     oversized_media_id = uuid4()
