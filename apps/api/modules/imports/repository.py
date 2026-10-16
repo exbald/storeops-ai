@@ -51,8 +51,13 @@ class ImportRepository:
                 return imp
             return None
 
-    async def get_staged_rows(self, import_id: UUID) -> list[dict[str, Any]] | None:
+    async def get_staged_rows(
+        self, workspace_id: UUID, import_id: UUID
+    ) -> list[dict[str, Any]] | None:
         async with self._lock:
+            imp = self._imports.get(import_id)
+            if imp is None or imp.workspace_id != workspace_id:
+                return None
             return self._staged_rows.get(import_id)
 
     async def find_committed_import(

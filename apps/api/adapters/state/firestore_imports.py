@@ -146,7 +146,13 @@ class FirestoreImportRepository(ImportRepositoryPort):
         record = Import.model_validate(doc.to_dict())
         return record if record.workspace_id == workspace_id else None
 
-    async def get_staged_rows(self, import_id: UUID) -> list[dict[str, Any]] | None:
+    async def get_staged_rows(
+        self, workspace_id: UUID, import_id: UUID
+    ) -> list[dict[str, Any]] | None:
+        # Staging lives under imports/{import_id}; the parent record carries the
+        # workspace, so rows are only returned to the owning workspace.
+        if await self.get_import(workspace_id, import_id) is None:
+            return None
         manifest_doc = await self._manifest_ref(import_id).get()
         if not manifest_doc.exists:
             return None
