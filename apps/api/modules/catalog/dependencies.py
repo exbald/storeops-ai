@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
+from apps.api.adapters.state.firestore_persistence import default_firestore_client
 from apps.api.core.config import ConfigurationError, Settings, settings
 from apps.api.modules.catalog.repository import (
     CatalogRepository,
@@ -13,10 +14,28 @@ _catalog_repository: CatalogRepository | None = None
 _blob_repository: BlobRepository | None = None
 
 
+def build_catalog_repository(
+    cfg: Settings = settings,
+    firestore_client_factory: Callable[[str | None], Any] | None = None,
+) -> CatalogRepository:
+    """Write-through Firestore repo when STATE_BACKEND=firestore; in-memory otherwise.
+
+    The Firestore-backed repo serves reads from memory: single API instance only.
+    """
+    if cfg.state_backend.lower() == "firestore":
+        from apps.api.adapters.state.firestore_write_through import (
+            FirestoreBackedCatalogRepository,
+        )
+
+        factory = firestore_client_factory or default_firestore_client
+        return FirestoreBackedCatalogRepository(client=factory(cfg.firebase_project_id))
+    return InMemoryCatalogRepository()
+
+
 def get_catalog_repository() -> CatalogRepository:
     global _catalog_repository
     if _catalog_repository is None:
-        _catalog_repository = InMemoryCatalogRepository()
+        _catalog_repository = build_catalog_repository()
     return _catalog_repository
 
 

@@ -3,6 +3,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends
 
+from apps.api.adapters.state.firestore_persistence import default_firestore_client
 from apps.api.analytics.duckdb import DuckDBAnalyticsRepository
 from apps.api.core.auth import get_state_repository
 from apps.api.core.config import ConfigurationError, Settings, settings
@@ -24,12 +25,6 @@ _analytics_repository: AnalyticsRepository | None = None
 _clock: Clock | None = None
 
 
-def _default_firestore_client(project: str | None) -> Any:
-    from google.cloud import firestore
-
-    return firestore.AsyncClient(project=project)
-
-
 def _default_bigquery_client(project: str | None) -> Any:
     from google.cloud import bigquery
 
@@ -44,7 +39,7 @@ def build_import_repository(
     if cfg.state_backend.lower() == "firestore":
         from apps.api.adapters.state.firestore_imports import FirestoreImportRepository
 
-        factory = firestore_client_factory or _default_firestore_client
+        factory = firestore_client_factory or default_firestore_client
         return FirestoreImportRepository(client=factory(cfg.firebase_project_id))
     return ImportRepository()
 
