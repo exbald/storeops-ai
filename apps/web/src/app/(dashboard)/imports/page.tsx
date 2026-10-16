@@ -234,9 +234,9 @@ export default function ImportsPage() {
 
       {/* Explicit Commit Guidance */}
       <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
-        <span className="font-semibold">Explicit Commit Guarantee:</span> Uploaded CSV files are strictly staged
-        and pre-validated. No analytical metrics, sales histories, or stock levels will be modified until you
-        review validation totals and click the explicit <strong>Commit Data</strong> action.
+        <span className="font-semibold">Imports are only saved when you commit them.</span> Uploaded CSV files are
+        checked first. Sales history and stock levels stay unchanged until you review the check results and
+        click <strong>Commit Data</strong>.
       </div>
 
       {/* Imports History Table */}
