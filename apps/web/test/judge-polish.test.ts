@@ -457,3 +457,20 @@ test("VerifyModal: 'Use sample photo: fixed' uploads shelf_after.jpg as a fresh 
 test("VerifyModal: 'Use sample photo: still not fixed' uploads shelf_after_fail.jpg as a fresh VISIT_AFTER photo", async () => {
   await runSampleButton("Use sample photo: still not fixed", "shelf_after_fail.jpg");
 });
+
+test("InvestigationDetailPage: after a failed check (NEEDS_WORK) the rep can verify again", async () => {
+  const inv = readyInvestigation();
+  inv.state = "NEEDS_WORK";
+  const { container, unmount } = await render(
+    React.createElement(AuthProvider, null, wrap(React.createElement(InvestigationDetailPage), { id: inv.id }))
+  );
+  try {
+    await settle();
+    const btn = findButton(container, "Verify again");
+    assert.equal((btn as HTMLButtonElement).disabled, false);
+    await click(btn);
+    assert.ok(findButton(container, "Use sample photo: fixed"), "Verify dialog must open from NEEDS_WORK");
+  } finally {
+    await unmount();
+  }
+});
