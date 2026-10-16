@@ -215,6 +215,8 @@ export default function InvestigationDetailPage() {
   const allActionsDone =
     investigation.actions.length > 0 &&
     investigation.actions.every((a) => a.status === "CLAIMED_DONE");
+  // A failed check returns the case to NEEDS_WORK; the rep fixes the shelf and verifies again.
+  const canVerify = investigation.state === "ACCEPTED" || investigation.state === "NEEDS_WORK";
 
   const stateVariant =
     investigation.state === "RESOLVED"
@@ -264,13 +266,13 @@ export default function InvestigationDetailPage() {
             </>
           )}
 
-          {investigation.state === "ACCEPTED" && (
+          {canVerify && (
             <Button
               onClick={() => setIsVerifyOpen(true)}
               disabled={!allActionsDone}
               title={!allActionsDone ? "Complete all action items before verifying" : ""}
             >
-              Verify the fix
+              {investigation.state === "NEEDS_WORK" ? "Verify again" : "Verify the fix"}
             </Button>
           )}
         </div>
@@ -400,7 +402,7 @@ export default function InvestigationDetailPage() {
         <ol className="space-y-3">
           {investigation.actions.map((act, idx) => {
             const isDone = act.status !== "OPEN";
-            const canToggle = investigation.state === "ACCEPTED" && act.status !== "VERIFIED";
+            const canToggle = canVerify && act.status !== "VERIFIED";
 
             return (
               <li
