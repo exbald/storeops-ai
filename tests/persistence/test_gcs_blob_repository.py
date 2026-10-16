@@ -150,3 +150,20 @@ async def test_finalize_with_explicit_bytes_writes_them(repo):
     sha, size, dims = await repo.finalize_upload(media_id, raw_bytes=payload)
     assert (sha, size, dims) == (hashlib.sha256(payload).hexdigest(), len(payload), None)
     assert await repo.read_bytes(media_id) == payload
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (_png_bytes(), "image/png"),
+        (_jpeg_with_exif_orientation(), "image/jpeg"),
+        (b"%PDF-1.7\n...", "application/pdf"),
+        (b"\x00\x01binary", "application/octet-stream"),
+    ],
+    ids=["png", "jpeg", "pdf", "unknown"],
+)
+async def test_store_upload_sets_content_type_from_bytes(repo, fake_storage_client, payload, expected):
+    media_id = uuid4()
+    await repo.store_upload(media_id, payload)
+    bucket = fake_storage_client.buckets[BUCKET]
+    assert bucket.content_types[f"media/{media_id}.bin"] == expected
