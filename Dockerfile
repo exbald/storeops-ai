@@ -19,6 +19,8 @@ RUN uv sync --frozen --no-dev
 
 # Copy application source code
 COPY apps/api ./apps/api
+# AI output validation reads contracts/ai-output.schema.json at runtime
+COPY contracts ./contracts
 COPY scripts/deploy ./scripts/deploy
 COPY infra ./infra
 COPY migrations ./migrations
