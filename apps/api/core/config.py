@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 load_dotenv(override=True)
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     media_bucket: str | None = os.getenv("MEDIA_BUCKET") or None  # GCS bucket for media bytes
     gcp_project: str | None = os.getenv("GCP_PROJECT") or os.getenv("GCP_PROJECT_ID") or None
     bigquery_dataset: str | None = os.getenv("BIGQUERY_DATASET") or None
+    # HMAC key for signed media byte URLs; required for PROFILE=CLOUD (see blob/signing.py).
+    media_url_signing_key: str | None = Field(
+        default=os.getenv("MEDIA_URL_SIGNING_KEY") or None, repr=False
+    )
 
     @model_validator(mode="after")
     def validate_cloud_profile(self) -> "Settings":

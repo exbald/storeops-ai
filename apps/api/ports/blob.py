@@ -27,3 +27,10 @@ class BlobRepository(Protocol):
     async def get_download_url(self, media_id: UUID, expires_in_seconds: int = 600) -> str:
         """Generate expiring URL to download asset."""
         ...
+
+    def verify_signed_url(
+        self, method: str, media_id: UUID, expires: str | None, signature: str | None
+    ) -> bool:
+        """True when (expires, signature) is an unexpired grant this repository issued
+        for `method` ("PUT" upload / "GET" download) on media_id."""
+        ...

@@ -10,8 +10,18 @@ from PIL import Image
 
 from apps.api.adapters.blob.gcs import GCSBlobRepository
 from apps.api.adapters.blob.local_fs import LocalFileSystemBlobRepository
+from apps.api.adapters.blob.signing import (
+    UPLOAD_METHOD,
+    UPLOAD_URL_TTL_SECONDS,
+    MediaUrlSigner,
+)
 
 BUCKET = "storeops-test-media"
+NOW = 1_800_000_000.0
+
+
+def _signer() -> MediaUrlSigner:
+    return MediaUrlSigner(b"k" * 32, clock=lambda: NOW)
 
 
 def _png_bytes(width: int = 64, height: int = 32) -> bytes:
@@ -35,6 +45,7 @@ def repo(fake_storage_client, monkeypatch) -> GCSBlobRepository:
     monkeypatch.delenv("API_URL", raising=False)
     return GCSBlobRepository(
         bucket_name=BUCKET,
+        signer=_signer(),
         client=fake_storage_client,
         base_url="https://api.example.test/media",
     )
@@ -42,20 +53,21 @@ def repo(fake_storage_client, monkeypatch) -> GCSBlobRepository:
 
 def test_requires_bucket_name(fake_storage_client):
     with pytest.raises(ValueError, match="MEDIA_BUCKET"):
-        GCSBlobRepository(bucket_name="", client=fake_storage_client)
+        GCSBlobRepository(bucket_name="", signer=_signer(), client=fake_storage_client)
 
 
-async def test_prepare_upload_returns_api_upload_route(repo):
+async def test_prepare_upload_returns_signed_api_upload_route(repo):
     media_id = uuid4()
     url = await repo.prepare_upload(media_id, "shelf.png", "image/png")
-    assert url == f"https://api.example.test/media/upload/{media_id}"
+    expected_query = _signer().query(UPLOAD_METHOD, media_id, UPLOAD_URL_TTL_SECONDS)
+    assert url == f"https://api.example.test/media/upload/{media_id}?{expected_query}"
 
 
 async def test_upload_url_matches_local_fs_shape(fake_storage_client, tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIA_BASE_URL", "https://api.run.app/media")
     media_id = uuid4()
-    gcs = GCSBlobRepository(bucket_name=BUCKET, client=fake_storage_client)
-    local = LocalFileSystemBlobRepository(base_dir=tmp_path)
+    gcs = GCSBlobRepository(bucket_name=BUCKET, signer=_signer(), client=fake_storage_client)
+    local = LocalFileSystemBlobRepository(base_dir=tmp_path, signer=_signer())
     assert await gcs.prepare_upload(media_id, "a.csv", "text/csv") == await local.prepare_upload(
         media_id, "a.csv", "text/csv"
     )

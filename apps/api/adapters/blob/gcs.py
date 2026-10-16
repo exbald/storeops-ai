@@ -11,6 +11,12 @@ from uuid import UUID
 from google.api_core.exceptions import NotFound
 
 from apps.api.adapters.blob.processing import normalize_asset, resolve_media_base_url
+from apps.api.adapters.blob.signing import (
+    DOWNLOAD_METHOD,
+    UPLOAD_METHOD,
+    UPLOAD_URL_TTL_SECONDS,
+    MediaUrlSigner,
+)
 from apps.api.ports.blob import BlobRepository
 
 OCTET_STREAM = "application/octet-stream"
@@ -33,6 +39,8 @@ class GCSBlobRepository(BlobRepository):
     def __init__(
         self,
         bucket_name: str,
+        *,
+        signer: MediaUrlSigner,
         client: Any | None = None,
         project_id: str | None = None,
         base_url: str = "http://localhost:8000/media",
@@ -45,6 +53,7 @@ class GCSBlobRepository(BlobRepository):
 
             client = storage.Client(project=project_id)
         self.bucket_name = bucket_name
+        self.signer = signer
         self.prefix = prefix.strip("/")
         self.base_url = resolve_media_base_url(base_url)
         self._bucket = client.bucket(bucket_name)
@@ -58,7 +67,9 @@ class GCSBlobRepository(BlobRepository):
         )
 
     async def prepare_upload(self, media_id: UUID, filename: str, mime_type: str) -> str:
-        return f"{self.base_url}/upload/{media_id}"
+        return self.signer.signed_url(
+            self.base_url, UPLOAD_METHOD, media_id, UPLOAD_URL_TTL_SECONDS
+        )
 
     async def store_upload(self, media_id: UUID, data: bytes) -> None:
         await self._upload(media_id, data)
@@ -83,4 +94,9 @@ class GCSBlobRepository(BlobRepository):
             raise FileNotFoundError(f"Media {media_id} not found") from e
 
     async def get_download_url(self, media_id: UUID, expires_in_seconds: int = 600) -> str:
-        return f"{self.base_url}/download/{media_id}?expires={expires_in_seconds}"
+        return self.signer.signed_url(self.base_url, DOWNLOAD_METHOD, media_id, expires_in_seconds)
+
+    def verify_signed_url(
+        self, method: str, media_id: UUID, expires: str | None, signature: str | None
+    ) -> bool:
+        return self.signer.verify(method, media_id, expires, signature)
