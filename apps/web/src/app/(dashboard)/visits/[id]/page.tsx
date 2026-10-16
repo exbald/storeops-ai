@@ -12,6 +12,7 @@ import { Input } from "../../../../components/ui/input";
 import { Select } from "../../../../components/ui/select";
 import { Modal } from "../../../../components/ui/modal";
 import { SAMPLE_PHOTOS, uploadSamplePhoto, uploadVisitPhoto, type PhotoKind } from "../../../../lib/media-upload";
+import { investigablePromotions } from "../../../../lib/investigable-promotions";
 
 export default function VisitDetailPage() {
   const params = useParams();
@@ -76,10 +77,11 @@ export default function VisitDetailPage() {
 
       try {
         const promoRes = await apiClient.listPromotions();
-        setPromotions(promoRes.items);
+        const usable = investigablePromotions(promoRes.items, visitData.store_id);
+        setPromotions(usable);
         setPromotionsError(null);
-        if (promoRes.items.length > 0) {
-          setSelectedPromoId(promoRes.items[0].id);
+        if (usable.length > 0) {
+          setSelectedPromoId(usable[0].id);
         }
       } catch (err: unknown) {
         console.error("Failed to load promotions:", err);
