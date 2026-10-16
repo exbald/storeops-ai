@@ -16,7 +16,7 @@ RUN pnpm --filter @storeops/contracts build
 COPY apps/web ./apps/web
 
 ARG NEXT_PUBLIC_API_URL="https://storeops-api-967137522464.asia-southeast1.run.app"
-ARG NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000003"
+ARG NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000004"
 ARG NEXT_PUBLIC_AUTH_TOKEN="dev-admin-token"
 
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
@@ -32,7 +32,7 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
     NEXT_PUBLIC_API_URL="https://storeops-api-967137522464.asia-southeast1.run.app" \
-    NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000003" \
+    NEXT_PUBLIC_WORKSPACE_ID="00000000-0000-0000-0000-000000000004" \
     NEXT_PUBLIC_AUTH_TOKEN="dev-admin-token"
 
 COPY --from=base /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/package.json ./
