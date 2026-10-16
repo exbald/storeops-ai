@@ -335,3 +335,13 @@ async def test_ac41_cloud_run_worker_http_server():
         assert b"storeops-worker" in response
 
 
+
+
+def test_api_public_url_is_derived_from_the_target_project():
+    """API_URL/MEDIA_BASE_URL follow the deploy target, never a hardcoded project number."""
+    script = DEPLOY_SH.read_text(encoding="utf-8")
+    assert "967137522464" not in script
+    assert "projectNumber" in script
+    api_block = script.split("gcloud run deploy storeops-api", 1)[1].split("--quiet", 1)[0]
+    assert "API_URL=${API_PUBLIC_URL}" in api_block
+    assert "MEDIA_BASE_URL=${API_PUBLIC_URL}/media" in api_block

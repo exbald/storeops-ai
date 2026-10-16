@@ -239,6 +239,10 @@ gcloud secrets add-iam-policy-binding "${MEDIA_URL_SIGNING_SECRET}" \
     --member="serviceAccount:${API_SA}" \
     --role="roles/secretmanager.secretAccessor" \
     --project="${PROJECT_ID}" --quiet >/dev/null
+# Cloud Run URLs are deterministic (https://<service>-<project number>.<region>.run.app), so the
+# API can learn its own public URL before the first deploy.
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")"
+API_PUBLIC_URL="https://storeops-api-${PROJECT_NUMBER}.${REGION}.run.app"
 gcloud run deploy storeops-api \
     --source="${ROOT_DIR}" \
     --command="uvicorn,apps.api.main:app,--host,0.0.0.0,--port,8000" \
@@ -250,7 +254,7 @@ gcloud run deploy storeops-api \
     --max-instances=1 \
     --allow-unauthenticated \
     --set-secrets="MEDIA_URL_SIGNING_KEY=${MEDIA_URL_SIGNING_SECRET}:latest" \
-    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=https://storeops-api-967137522464.asia-southeast1.run.app,MEDIA_BASE_URL=https://storeops-api-967137522464.asia-southeast1.run.app/media" \
+    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=${API_PUBLIC_URL},MEDIA_BASE_URL=${API_PUBLIC_URL}/media" \
     --quiet
 
 API_URL="$(gcloud run services describe storeops-api --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
