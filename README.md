@@ -50,8 +50,8 @@ flowchart LR
 ```
 
 - **AI:** Gemini (`gemini-3.8-flash`) through the `google-genai` SDK is the only AI model in the app at runtime. It handles the PDF rule extraction, the shelf photo analysis, the investigation reasoning and the verification. The demo's shelf photos were generated separately with Gemini's image model.
-- **Google Cloud:** Cloud Run (web, API, private worker, repair job), Firestore, Cloud Storage, BigQuery and Cloud Scheduler, all in `asia-southeast1`.
-- **Security:** browser code never reaches Firestore, BigQuery or Gemini directly. Firestore security rules deny all client access, and every request goes through the API, which checks workspace membership.
+- **Google Cloud and Firebase:** Cloud Run (web, API, private worker, repair job), Firestore in the project's Firebase setup, Cloud Storage, BigQuery and Cloud Scheduler, all in `asia-southeast1`.
+- **Security:** browser code never reaches Firestore, BigQuery or Gemini directly. Firebase security rules ([`firestore.rules`](firestore.rules)) deny all direct client access to Firestore, and every request goes through the API, which checks workspace membership.
 
 ## Run it locally
 
