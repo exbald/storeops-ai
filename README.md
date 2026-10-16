@@ -2,6 +2,8 @@
 
 **StoreOps finds why a promotion is failing in a store, helps the field rep fix it, and verifies the fix from shelf photos.**
 
+<a href="https://youtu.be/KR8Y7qN2x9w" title="Watch the StoreOps AI demo on YouTube (3:14)"><img src="docs/demo-video-thumbnail.jpg" alt="StoreOps AI demo video (3:14). Click to watch on YouTube." width="720"></a>
+
 Brands pay retailers for shelf placement during promotions, but nobody can easily tell whether the shelf actually looks the way the agreement says. StoreOps reads the agreement, turns it into checkable rules, looks at the store's sales and stock, inspects shelf photos with Gemini, proposes a fix, and only closes the issue when a new photo proves every rule passes.
 
 | | |
