@@ -18,7 +18,7 @@ export default function SignInPage() {
     // Simulating Firebase Auth Token exchange
     setTimeout(() => {
       setIsSubmitting(false);
-      router.push("/setup");
+      router.push("/home");
     }, 400);
   };
 
@@ -80,7 +80,7 @@ export default function SignInPage() {
             <Button
               type="button"
               className="w-full"
-              onClick={() => router.push("/setup")}
+              onClick={() => router.push("/home")}
             >
               Continue to Workspace
             </Button>

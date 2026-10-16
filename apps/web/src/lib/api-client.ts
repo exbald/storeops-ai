@@ -27,6 +27,7 @@ import type {
   Job,
   JobEvent,
   Media,
+  Evidence,
   Schemas,
 } from "@storeops/contracts";
 
@@ -117,6 +118,7 @@ export class StoreOpsClient {
   private doubleJobs: Job[] = [...MOCK_JOBS];
   private doubleJobEvents: JobEvent[] = [...MOCK_JOB_EVENTS];
   private doubleMedia: Media[] = [];
+  private doubleEvidence: Evidence[] = [];
 
   constructor(config: ApiClientConfig = {}) {
     const explicitDoubles =
@@ -180,6 +182,7 @@ export class StoreOpsClient {
     this.doubleJobs = MOCK_JOBS.map((j) => ({ ...j }));
     this.doubleJobEvents = MOCK_JOB_EVENTS.map((je) => ({ ...je }));
     this.doubleMedia = [];
+    this.doubleEvidence = [];
   }
 
   public getDoubleReports(): Report[] {
@@ -188,6 +191,10 @@ export class StoreOpsClient {
 
   public getDoubleVisits(): Visit[] {
     return this.doubleVisits;
+  }
+
+  public getDoubleEvidence(): Evidence[] {
+    return this.doubleEvidence;
   }
 
   public getDoubleInvestigations(): Investigation[] {
@@ -1151,6 +1158,24 @@ export class StoreOpsClient {
       return verif;
     }
     return this.fetch<Verification>(`/verifications/${verificationId}`);
+  }
+
+  // --- Evidence ---
+  async listEvidence(investigationId: string, params?: { limit?: number; cursor?: string }): Promise<{ items: Evidence[]; next_cursor: string | null }> {
+    if (this.useDoubles) {
+      return {
+        items: this.doubleEvidence.filter((ev) => ev.investigation_id === investigationId),
+        next_cursor: null,
+      };
+    }
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.cursor) query.set("cursor", params.cursor);
+    const qs = query.toString();
+    // Fixed path per contracts/openapi.json: GET /investigations/{investigation_id}/evidence (listEvidence)
+    return this.fetch<{ items: Evidence[]; next_cursor: string | null }>(
+      `/investigations/${investigationId}/evidence${qs ? `?${qs}` : ""}`
+    );
   }
 
   async getReport(reportId: string): Promise<Report> {
