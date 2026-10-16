@@ -58,7 +58,8 @@ class InvestigationContext:
     snapshot_id: UUID
     catalog_product_ids: list[UUID]
     policy_version_id: UUID | None = None
-    zone_media_ids: dict[str, UUID] | None = None
+    # zone_id -> media id(s) photographed in that zone (several photos may share a zone)
+    zone_media_ids: dict[str, UUID | list[UUID]] | None = None
     agreement_media_id: UUID | None = None
 
 
@@ -105,6 +106,41 @@ class ReadOnlyToolRegistry:
                 f"Tool '{tool_name}' must return a ToolEnvelope, got {type(envelope)}"
             )
         return envelope
+
+
+def _zone_media_pairs(
+    zone_media_ids: dict[str, UUID | list[UUID]],
+) -> list[tuple[str, UUID]]:
+    pairs: list[tuple[str, UUID]] = []
+    for zone_id, value in zone_media_ids.items():
+        media_list = value if isinstance(value, list) else [value]
+        pairs.extend((zone_id, mid) for mid in media_list)
+    return pairs
+
+
+def _observation_entry(
+    media_id: UUID, zone_id: str, env: ToolEnvelope
+) -> dict[str, Any]:
+    """Prompt entry keyed to its citable evidence ids; failures stay explicit."""
+    entry: dict[str, Any] = {
+        "media_id": str(media_id),
+        "zone_id": zone_id,
+        "status": env.status.value,
+        "evidence_ids": [str(e) for e in env.evidence_ids],
+    }
+    if env.status == Status8.OK and env.data:
+        entry["observation"] = env.data
+    else:
+        entry["status"] = (
+            Status8.ERROR.value if env.status == Status8.OK else env.status.value
+        )
+        entry["evidence_ids"] = []
+        entry["error"] = (
+            {"code": env.error.code, "message": env.error.message}
+            if env.error
+            else {"code": "NO_OBSERVATION", "message": "No observation data returned"}
+        )
+    return entry
 
 
 class Investigator:
@@ -161,7 +197,7 @@ class Investigator:
         # 4. Inspect visual zones if media provided and inspect_image registered
         observations_data: list[dict[str, Any]] = []
         if "inspect_image" in tools._tools and ctx.zone_media_ids:
-            for zone_id, media_id in ctx.zone_media_ids.items():
+            for zone_id, media_id in _zone_media_pairs(ctx.zone_media_ids):
                 img_env = call_tool(
                     "inspect_image",
                     {
@@ -172,8 +208,9 @@ class Investigator:
                         "zone_id": zone_id,
                     },
                 )
-                if img_env.status == Status8.OK and img_env.data:
-                    observations_data.append(img_env.data)
+                observations_data.append(
+                    _observation_entry(media_id, zone_id, img_env)
+                )
 
         # 5. Fetch approved policy if policy_version_id provided
         policy_env = None
