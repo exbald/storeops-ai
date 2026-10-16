@@ -5,12 +5,21 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiClient, VersionConflictError } from "../../../../lib/api-client";
 import { formatFreshness } from "../../../../lib/formatters";
-import type { Investigation, Action, Verification, Job, JobEvent, Media, Schemas } from "@storeops/contracts";
+import type { Investigation, Action, Verification, Job, JobEvent, Rule } from "@storeops/contracts";
 import { Button } from "../../../../components/ui/button";
 import { Badge } from "../../../../components/ui/badge";
 import { Modal } from "../../../../components/ui/modal";
 import { Select } from "../../../../components/ui/select";
-import { Input } from "../../../../components/ui/input";
+import { useInvestigationEvidence } from "../../../../lib/use-investigation-evidence";
+import { EvidenceThumbnails } from "../../../../components/investigation/evidence-thumbnails";
+import { VerificationResults } from "../../../../components/investigation/verification-results";
+import { VerifyModal } from "../../../../components/investigation/verify-modal";
+import {
+  ACTION_KIND_LABELS,
+  CLAIM_KIND_LABELS,
+  HYPOTHESIS_LABELS,
+  STATE_LABELS,
+} from "../../../../lib/investigation-labels";
 
 export default function InvestigationDetailPage() {
   const params = useParams();
@@ -22,7 +31,6 @@ export default function InvestigationDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [verificationsError, setVerificationsError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [afterZoneId, setAfterZoneId] = useState("shelf-main");
 
   // Accept / Dismiss plan modal states
   const [isDismissOpen, setIsDismissOpen] = useState(false);
@@ -32,10 +40,8 @@ export default function InvestigationDetailPage() {
 
   // Verify modal state
   const [isVerifyOpen, setIsVerifyOpen] = useState(false);
-  const [afterMedia, setAfterMedia] = useState<Media[]>([]);
-  const [isUploadingAfter, setIsUploadingAfter] = useState(false);
-  const [isSubmittingVerify, setIsSubmittingVerify] = useState(false);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [rulesById, setRulesById] = useState<Record<string, Rule>>({});
+  const evidence = useInvestigationEvidence(investigationId || null);
 
   // Active Verification Job polling
   const [activeJob, setActiveJob] = useState<Job | null>(null);
@@ -49,6 +55,17 @@ export default function InvestigationDetailPage() {
     try {
       const invData = await apiClient.getInvestigation(investigationId);
       setInvestigation(invData);
+
+      try {
+        const versionsRes = await apiClient.listPolicyVersions(invData.promotion_id);
+        const policy = versionsRes.items.find((v) => v.id === invData.policy_version_id);
+        const nextRules: Record<string, Rule> = {};
+        for (const rule of policy?.rules ?? []) nextRules[rule.rule_id] = rule;
+        setRulesById(nextRules);
+      } catch (rulesErr: unknown) {
+        // Rule names are labels only; checks still render with their rule id.
+        console.error("Failed to load policy rules:", rulesErr);
+      }
 
       try {
         const verifsRes = await apiClient.listVerifications(investigationId);
@@ -86,6 +103,7 @@ export default function InvestigationDetailPage() {
 
         if (job.status === "SUCCEEDED" || job.status === "FAILED") {
           await loadData();
+          evidence.reload();
           return;
         }
 
@@ -175,100 +193,6 @@ export default function InvestigationDetailPage() {
     }
   };
 
-  const handleAfterFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !investigation) return;
-    if (investigation.workspace_id) {
-      apiClient.setWorkspaceId(investigation.workspace_id);
-    }
-
-    setIsUploadingAfter(true);
-    setVerifyError(null);
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const sha256 = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-
-      let mimeType: "image/jpeg" | "image/png" | "application/pdf" | "text/csv" = "image/jpeg";
-      if (file.type === "image/png") mimeType = "image/png";
-      else if (file.type === "application/pdf") mimeType = "application/pdf";
-      else if (file.type === "text/csv") mimeType = "text/csv";
-
-      const initResp = await apiClient.initMedia({
-        kind: "VISIT_AFTER",
-        filename: file.name,
-        mime_type: mimeType,
-        byte_size: file.size,
-        sha256,
-        store_id: investigation.store_id,
-        visit_id: investigation.visit_id,
-        product_id: null,
-        zone_id: afterZoneId.trim() || "shelf-main",
-        zone_kind: "SHELF",
-        captured_at: new Date().toISOString(),
-      });
-
-      if (initResp.upload_url && !apiClient.useDoubles) {
-        const uploadRes = await fetch(initResp.upload_url, {
-          method: "PUT",
-          headers: { "Content-Type": mimeType },
-          body: file,
-        });
-        if (!uploadRes.ok) {
-          throw new Error(`Media upload failed with status ${uploadRes.status}: ${uploadRes.statusText}`);
-        }
-      }
-
-      const completed = await apiClient.completeMedia(initResp.media.id, {
-        expected_version: 1,
-      });
-
-      setAfterMedia((prev) => [completed, ...prev]);
-    } catch (err: unknown) {
-      console.error("After photo upload error:", err);
-      setVerifyError(err instanceof Error ? err.message : "Failed to upload after photo");
-    } finally {
-      setIsUploadingAfter(false);
-      e.target.value = "";
-    }
-  };
-
-  const handleTriggerVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!investigation) return;
-    if (investigation.workspace_id) {
-      apiClient.setWorkspaceId(investigation.workspace_id);
-    }
-
-    if (afterMedia.length === 0) {
-      setVerifyError("Please upload at least one after-action shelf photo for verification.");
-      return;
-    }
-
-    setIsSubmittingVerify(true);
-    setVerifyError(null);
-
-    try {
-      const job = await apiClient.verifyInvestigation(investigation.id, {
-        expected_version: investigation.version,
-        after_media_ids: afterMedia.map((m) => m.id),
-      });
-
-      setActiveJob(job);
-      setIsVerifyOpen(false);
-    } catch (err: unknown) {
-      if (err instanceof VersionConflictError) {
-        setVerifyError("Investigation was modified concurrently. Refreshing state...");
-        await loadData();
-      } else {
-        setVerifyError(err instanceof Error ? err.message : "Failed to trigger verification");
-      }
-    } finally {
-      setIsSubmittingVerify(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="py-12 text-center text-gray-500">
@@ -310,13 +234,13 @@ export default function InvestigationDetailPage() {
             <h1 className="text-2xl font-bold text-gray-900">
               Investigation #{investigation.id.slice(0, 8)}
             </h1>
-            <Badge variant={stateVariant}>{investigation.state}</Badge>
+            <Badge variant={stateVariant}>{STATE_LABELS[investigation.state] ?? investigation.state}</Badge>
             {investigation.policy_stale && (
               <Badge variant="warning">Policy Superseded</Badge>
             )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            Plan Revision: {investigation.plan_revision} • OCC Version: {investigation.version} • Created: {formatFreshness(investigation.created_at)}
+            Plan version {investigation.plan_revision} • Created {formatFreshness(investigation.created_at)}
           </p>
         </div>
 
@@ -346,7 +270,7 @@ export default function InvestigationDetailPage() {
               disabled={!allActionsDone}
               title={!allActionsDone ? "Complete all action items before verifying" : ""}
             >
-              Verify Execution
+              Verify the fix
             </Button>
           )}
         </div>
@@ -402,109 +326,135 @@ export default function InvestigationDetailPage() {
         </div>
       )}
 
-      {/* Diagnosis & Hypothesis Card */}
-      <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
-        <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
-          AI Merchandising Diagnosis
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-gray-50 p-4 rounded border border-gray-100">
-            <span className="text-xs font-semibold text-gray-500 uppercase">Hypothesis</span>
-            <div className="text-lg font-bold text-gray-900 mt-1">
-              {investigation.diagnosis?.hypothesis || "EXECUTION"}
-            </div>
-            <span className="text-xs text-gray-500">
-              Support: {investigation.diagnosis?.support || "SUPPORTED"}
-            </span>
+      {evidence.error && (
+        <div role="alert" className="bg-red-50 p-4 rounded-lg border border-red-200 text-sm text-red-700 flex justify-between items-center gap-3">
+          <div>
+            <span className="font-semibold">Failed to load evidence photos:</span> {evidence.error}
           </div>
-
-          <div className="md:col-span-2 bg-gray-50 p-4 rounded border border-gray-100">
-            <span className="text-xs font-semibold text-gray-500 uppercase">Summary Findings</span>
-            <p className="text-sm text-gray-800 mt-1">
-              {investigation.diagnosis?.summary || "No diagnostic summary available."}
-            </p>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => evidence.reload()}>
+            Retry
+          </Button>
         </div>
+      )}
 
-        {/* Claims and Observations */}
-        {investigation.diagnosis?.claims && investigation.diagnosis.claims.length > 0 && (
-          <div className="pt-2">
+      {/* 1. Diagnosis */}
+      <section className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
+        <h2 className="text-lg font-semibold text-gray-900">1. What is going wrong</h2>
+
+        {investigation.diagnosis ? (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-bold text-indigo-950">
+                {HYPOTHESIS_LABELS[investigation.diagnosis.hypothesis]?.title ?? investigation.diagnosis.hypothesis}
+              </span>
+              <Badge variant={investigation.diagnosis.support === "SUPPORTED" ? "success" : "warning"} labelPrefix="Evidence strength:">
+                {investigation.diagnosis.support === "SUPPORTED" ? "Well supported" : "Limited evidence"}
+              </Badge>
+            </div>
+            <p className="text-sm text-indigo-900">{investigation.diagnosis.summary}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">No diagnosis yet.</p>
+        )}
+
+        {investigation.diagnosis && investigation.diagnosis.claims.length > 0 && (
+          <div>
             <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider mb-2">
-              Evidentiary Claims
+              Why StoreOps thinks so
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {investigation.diagnosis.claims.map((claim) => (
-                <li key={claim.id} className="text-sm bg-gray-50 p-3 rounded border border-gray-100 flex justify-between items-start">
+                <li key={claim.id} className="text-sm bg-gray-50 p-3 rounded border border-gray-100 space-y-2">
                   <div>
-                    <span className="font-semibold text-gray-800">{claim.kind}: </span>
-                    <span className="text-gray-700">{claim.text}</span>
-                  </div>
-                  {claim.evidence_ids.length > 0 && (
-                    <span className="text-xs font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                      {claim.evidence_ids.length} visual citation(s)
+                    <span className="inline-block text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded px-1.5 py-0.5 mr-2">
+                      {CLAIM_KIND_LABELS[claim.kind] ?? claim.kind}
                     </span>
-                  )}
+                    <span className="text-gray-800">{claim.text}</span>
+                  </div>
+                  <EvidenceThumbnails
+                    evidenceIds={claim.evidence_ids}
+                    evidenceById={evidence.evidenceById}
+                    loading={evidence.loading}
+                  />
                 </li>
               ))}
             </ul>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Corrective Action Checklist */}
-      <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
-        <div className="flex justify-between items-center">
+      {/* 2. Corrective actions */}
+      <section className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Corrective Action Plan</h2>
+            <h2 className="text-lg font-semibold text-gray-900">2. What the rep should do</h2>
             <p className="text-xs text-gray-500">
-              Complete each required merchandising action on the shelf before verifying execution.
+              Complete each action on the shelf, then verify the fix with a new photo.
             </p>
           </div>
           <span className="text-xs font-semibold text-gray-600">
-            {investigation.actions.filter((a) => a.status === "CLAIMED_DONE").length} / {investigation.actions.length} Completed
+            {investigation.actions.filter((a) => a.status !== "OPEN").length} of {investigation.actions.length} done
           </span>
         </div>
 
-        <div className="divide-y divide-gray-100">
-          {investigation.actions.map((act) => {
-            const isDone = act.status === "CLAIMED_DONE";
-            const canToggle = investigation.state === "ACCEPTED";
+        <ol className="space-y-3">
+          {investigation.actions.map((act, idx) => {
+            const isDone = act.status !== "OPEN";
+            const canToggle = investigation.state === "ACCEPTED" && act.status !== "VERIFIED";
 
             return (
-              <div key={act.id} className="py-4 flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
-                      {act.kind}
-                    </span>
-                    <Badge variant={isDone ? "success" : "warning"}>
-                      {act.status}
-                    </Badge>
+              <li
+                key={act.id}
+                className={`p-4 rounded-lg border flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
+                  isDone ? "border-green-200 bg-green-50/50" : "border-gray-200"
+                }`}
+              >
+                <div className="flex gap-3 min-w-0">
+                  <span
+                    className={`shrink-0 w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
+                      isDone ? "bg-green-600 text-white" : "bg-gray-200 text-gray-700"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {isDone ? "✓" : idx + 1}
+                  </span>
+                  <div className="space-y-2 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded">
+                        {ACTION_KIND_LABELS[act.kind] ?? act.kind}
+                      </span>
+                      <Badge variant={act.status === "VERIFIED" ? "success" : isDone ? "info" : "warning"}>
+                        {act.status === "VERIFIED" ? "Verified" : isDone ? "Done" : "To do"}
+                      </Badge>
+                      {act.required_zone_ids.length > 0 && (
+                        <span className="text-xs text-gray-500">Zone: {act.required_zone_ids.join(", ")}</span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium text-gray-900">{act.instruction}</p>
+                    <EvidenceThumbnails
+                      evidenceIds={act.evidence_ids}
+                      evidenceById={evidence.evidenceById}
+                      loading={evidence.loading}
+                    />
                   </div>
-                  <p className="text-sm font-medium text-gray-900 mt-1">
-                    {act.instruction}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Required Zones: {act.required_zone_ids.join(", ") || "All"}
-                  </p>
                 </div>
 
-                <div>
-                  <Button
-                    size="sm"
-                    variant={isDone ? "outline" : "primary"}
-                    disabled={!canToggle}
-                    onClick={() => handleToggleActionStatus(act)}
-                  >
-                    {isDone ? "Mark Incomplete" : "Claim Done"}
-                  </Button>
-                </div>
-              </div>
+                {canToggle && (
+                  <div className="shrink-0">
+                    <Button
+                      size="sm"
+                      variant={isDone ? "outline" : "primary"}
+                      onClick={() => handleToggleActionStatus(act)}
+                    >
+                      {isDone ? "Mark Incomplete" : "Claim Done"}
+                    </Button>
+                  </div>
+                )}
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ol>
+      </section>
 
       {/* Verification History & Reports */}
       {verificationsError && (
@@ -518,37 +468,12 @@ export default function InvestigationDetailPage() {
         </div>
       )}
 
-      {verifications.length > 0 && (
-        <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Verification History</h2>
-          <div className="divide-y divide-gray-100">
-            {verifications.map((v) => (
-              <div key={v.id} className="py-4 flex justify-between items-center">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900">
-                      Verification #{v.id.slice(0, 8)}
-                    </span>
-                    <Badge variant={v.result === "PASS" ? "success" : v.result === "FAIL" ? "danger" : "warning"}>
-                      {v.result}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Verified: {formatFreshness(v.created_at)} • {v.checks.length} compliance check(s)
-                  </p>
-                </div>
-                {v.report_id && (
-                  <Link href={`/reports/${v.report_id}`}>
-                    <Button variant="outline" size="sm">
-                      Inspect Report
-                    </Button>
-                  </Link>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <VerificationResults
+        verifications={verifications}
+        rulesById={rulesById}
+        evidenceById={evidence.evidenceById}
+        evidenceLoading={evidence.loading}
+      />
 
       {/* Dismiss Modal */}
       <Modal
@@ -607,77 +532,16 @@ export default function InvestigationDetailPage() {
         </form>
       </Modal>
 
-      {/* Verify Execution Modal */}
-      <Modal
+      <VerifyModal
         isOpen={isVerifyOpen}
         onClose={() => setIsVerifyOpen(false)}
-        title="Verify Merchandising Execution"
-      >
-        <form onSubmit={handleTriggerVerification} className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Upload new after-action shelf photos showing the restored facings/merchandising. Gemini will evaluate the visual evidence against the required policy rules.
-          </p>
-
-          {verifyError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-600">
-              {verifyError}
-            </div>
-          )}
-
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-              <div className="w-48">
-                <Input
-                  type="text"
-                  value={afterZoneId}
-                  onChange={(e) => setAfterZoneId(e.target.value)}
-                  placeholder="Zone (e.g. shelf-main)"
-                />
-              </div>
-              <label className="cursor-pointer">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  className="hidden"
-                  onChange={handleAfterFileUpload}
-                  disabled={isUploadingAfter}
-                />
-                <Button type="button" variant="outline" size="sm" disabled={isUploadingAfter}>
-                  {isUploadingAfter ? "Uploading..." : "Upload After-Action Photo"}
-                </Button>
-              </label>
-              <span className="text-xs text-gray-500">
-                {afterMedia.length} after-photo(s) attached
-              </span>
-            </div>
-
-            {afterMedia.length > 0 && (
-              <div className="divide-y divide-gray-200 pt-2">
-                {afterMedia.map((m) => (
-                  <div key={m.id} className="py-1 text-xs text-gray-700 flex justify-between">
-                    <span>{m.filename}</span>
-                    <span className="text-green-600 font-bold">Ready</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsVerifyOpen(false)}
-              disabled={isSubmittingVerify}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmittingVerify || afterMedia.length === 0}>
-              {isSubmittingVerify ? "Submitting for Verification..." : "Run AI Verification"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+        investigation={investigation}
+        onSubmitted={(job) => {
+          setActiveJob(job);
+          setIsVerifyOpen(false);
+        }}
+        onConflict={loadData}
+      />
     </div>
   );
 }
