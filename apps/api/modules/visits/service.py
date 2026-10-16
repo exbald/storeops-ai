@@ -61,6 +61,12 @@ from apps.api.ai.schemas import AnalysisProposal
 from apps.api.core.errors import ApiError
 from apps.api.modules.visits.ports import VisitCatalogPort, VisitPolicyPort
 from apps.api.modules.visits.repository import VisitRepository
+from apps.api.modules.visits.shelf_observations import (
+    ShelfObservation,
+    build_inspect_image_handler,
+    observation_summary,
+    observe_before_photo,
+)
 from apps.api.ports.analytics import AnalyticsRepository
 from apps.api.ports.blob import BlobRepository
 from apps.api.ports.clock import Clock
@@ -398,9 +404,20 @@ class VisitService:
 
         known_evidence_ids: list[UUID] = []
 
-        # 1. Visual evidence
+        # 1. Visual evidence: observe each before photo with the verifier's
+        # image-observation path, then persist the photo evidence.
+        shelf_observations: dict[UUID, ShelfObservation] = {}
+        photo_evidence_by_media: dict[UUID, UUID] = {}
         for mid in media_ids:
             media = await self.catalog_repo.get_media(workspace_id, mid)
+            shelf_obs = await observe_before_photo(
+                gateway=self.model_gateway,
+                blob_repo=self.blob_repo,
+                media_id=mid,
+                media=media,
+                catalog_product_ids=policy_ver.catalog_product_ids,
+            )
+            shelf_observations[mid] = shelf_obs
             observed_at = (media.captured_at if media else None) or now
             # Freshness check: <= 30m at start
             age_seconds = (now - observed_at).total_seconds()
@@ -412,7 +429,7 @@ class VisitService:
                 observed_at=observed_at,
                 retrieved_at=now,
                 freshness=freshness,
-                summary=f"Before shelf photograph {mid}",
+                summary=observation_summary(mid, shelf_obs),
                 source_id=mid,
                 source_sha256=(
                     media.normalized_sha256 or media.original_sha256
@@ -433,6 +450,7 @@ class VisitService:
             )
             await self.visit_repo.save_evidence(workspace_id, ev)
             known_evidence_ids.append(ev.id)
+            photo_evidence_by_media[mid] = ev.id
 
         # 2. Policy evidence
         policy_ev = Evidence(
@@ -957,7 +975,20 @@ class VisitService:
             ),
         )
 
-        zone_media_ids = {f"zone-{i}": mid for i, mid in enumerate(media_ids)}
+        registry.register(
+            "inspect_image",
+            build_inspect_image_handler(
+                results=shelf_observations,
+                evidence_by_media=photo_evidence_by_media,
+                as_of=now,
+            ),
+        )
+
+        zone_media_ids: dict[str, list[UUID]] = {}
+        for mid in media_ids:
+            zone_mids = zone_media_ids.setdefault(shelf_observations[mid].zone_id, [])
+            if mid not in zone_mids:
+                zone_mids.append(mid)
 
         ctx = InvestigationContext(
             workspace_id=str(workspace_id),

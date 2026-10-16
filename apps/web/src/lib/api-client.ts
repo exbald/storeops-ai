@@ -27,6 +27,7 @@ import type {
   Job,
   JobEvent,
   Media,
+  Evidence,
   Schemas,
 } from "@storeops/contracts";
 
@@ -117,6 +118,7 @@ export class StoreOpsClient {
   private doubleJobs: Job[] = [...MOCK_JOBS];
   private doubleJobEvents: JobEvent[] = [...MOCK_JOB_EVENTS];
   private doubleMedia: Media[] = [];
+  private doubleEvidence: Evidence[] = [];
 
   constructor(config: ApiClientConfig = {}) {
     const explicitDoubles =
@@ -180,6 +182,7 @@ export class StoreOpsClient {
     this.doubleJobs = MOCK_JOBS.map((j) => ({ ...j }));
     this.doubleJobEvents = MOCK_JOB_EVENTS.map((je) => ({ ...je }));
     this.doubleMedia = [];
+    this.doubleEvidence = [];
   }
 
   public getDoubleReports(): Report[] {
@@ -188,6 +191,10 @@ export class StoreOpsClient {
 
   public getDoubleVisits(): Visit[] {
     return this.doubleVisits;
+  }
+
+  public getDoubleEvidence(): Evidence[] {
+    return this.doubleEvidence;
   }
 
   public getDoubleInvestigations(): Investigation[] {
@@ -610,6 +617,56 @@ export class StoreOpsClient {
       return newPromo;
     }
     return this.fetch<Promotion>("/promotions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getPromotion(promotionId: string): Promise<Promotion> {
+    if (this.useDoubles) {
+      const promo = this.doublePromotions.find((p) => p.id === promotionId);
+      if (!promo) throw new ApiRequestError(404, "NOT_FOUND", "Promotion not found");
+      return { ...promo };
+    }
+    return this.fetch<Promotion>(`/promotions/${promotionId}`);
+  }
+
+  async updatePromotion(promotionId: string, data: Schemas["PromotionUpdate"]): Promise<Promotion> {
+    if (this.useDoubles) {
+      const idx = this.doublePromotions.findIndex((p) => p.id === promotionId);
+      if (idx === -1) throw new ApiRequestError(404, "NOT_FOUND", "Promotion not found");
+      const current = this.doublePromotions[idx];
+      if (current.version !== data.expected_version) {
+        throw new VersionConflictError("Promotion has been modified concurrently. Expected version mismatch.");
+      }
+      const { expected_version: _ignored, ...changes } = data;
+      const updated: Promotion = {
+        ...current,
+        ...changes,
+        version: current.version + 1,
+        draft_revision: current.draft_revision + 1,
+        updated_at: new Date().toISOString(),
+      };
+      this.doublePromotions = this.doublePromotions.map((p, i) => (i === idx ? updated : p));
+      return updated;
+    }
+    return this.fetch<Promotion>(`/promotions/${promotionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async extractPolicy(promotionId: string, data: Schemas["VersionCommand"]): Promise<Job> {
+    if (this.useDoubles) {
+      // Extraction needs the live API and Gemini; doubles never fabricate proposed rules.
+      throw new ApiRequestError(
+        501,
+        "EXTRACTION_UNAVAILABLE",
+        "Rule extraction needs the live StoreOps API. It is not available with test doubles."
+      );
+    }
+    // Path per contracts/openapi.json: POST /promotions/{promotion_id}/extract (202 Job)
+    return this.fetch<Job>(`/promotions/${promotionId}/extract`, {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -1151,6 +1208,24 @@ export class StoreOpsClient {
       return verif;
     }
     return this.fetch<Verification>(`/verifications/${verificationId}`);
+  }
+
+  // --- Evidence ---
+  async listEvidence(investigationId: string, params?: { limit?: number; cursor?: string }): Promise<{ items: Evidence[]; next_cursor: string | null }> {
+    if (this.useDoubles) {
+      return {
+        items: this.doubleEvidence.filter((ev) => ev.investigation_id === investigationId),
+        next_cursor: null,
+      };
+    }
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.cursor) query.set("cursor", params.cursor);
+    const qs = query.toString();
+    // Fixed path per contracts/openapi.json: GET /investigations/{investigation_id}/evidence (listEvidence)
+    return this.fetch<{ items: Evidence[]; next_cursor: string | null }>(
+      `/investigations/${investigationId}/evidence${qs ? `?${qs}` : ""}`
+    );
   }
 
   async getReport(reportId: string): Promise<Report> {

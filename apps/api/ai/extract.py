@@ -43,10 +43,12 @@ async def extract_image_observations(
             catalog_products=[str(pid) for pid in (catalog_product_ids or [])],
         )
     )
+    # Perception, not reasoning: low thinking returns the same observation ~10x faster
     return await gateway.generate_structured(
         prompt=prompt,
         response_schema=ImageObservation,
         images=[image_bytes],
+        thinking_budget="low",
     )
 
 

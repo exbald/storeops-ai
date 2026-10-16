@@ -11,6 +11,8 @@ import { Badge } from "../../../../components/ui/badge";
 import { Input } from "../../../../components/ui/input";
 import { Select } from "../../../../components/ui/select";
 import { Modal } from "../../../../components/ui/modal";
+import { SAMPLE_PHOTOS, uploadSamplePhoto, uploadVisitPhoto, type PhotoKind } from "../../../../lib/media-upload";
+import { investigablePromotions } from "../../../../lib/investigable-promotions";
 
 export default function VisitDetailPage() {
   const params = useParams();
@@ -75,10 +77,11 @@ export default function VisitDetailPage() {
 
       try {
         const promoRes = await apiClient.listPromotions();
-        setPromotions(promoRes.items);
+        const usable = investigablePromotions(promoRes.items, visitData.store_id);
+        setPromotions(usable);
         setPromotionsError(null);
-        if (promoRes.items.length > 0) {
-          setSelectedPromoId(promoRes.items[0].id);
+        if (usable.length > 0) {
+          setSelectedPromoId(usable[0].id);
         }
       } catch (err: unknown) {
         console.error("Failed to load promotions:", err);
@@ -178,48 +181,13 @@ export default function VisitDetailPage() {
     setUploadError(null);
 
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const sha256 = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-
-      let mimeType: "image/jpeg" | "image/png" | "application/pdf" | "text/csv" = "image/jpeg";
-      if (file.type === "image/png") mimeType = "image/png";
-      else if (file.type === "application/pdf") mimeType = "application/pdf";
-      else if (file.type === "text/csv") mimeType = "text/csv";
-
-      // 1. Init media
-      const initResp = await apiClient.initMedia({
+      const completed = await uploadVisitPhoto(file, {
         kind: mediaKind,
-        filename: file.name,
-        mime_type: mimeType,
-        byte_size: file.size,
-        sha256,
-        store_id: visit.store_id,
-        visit_id: visit.id,
-        product_id: null,
-        zone_id: zoneId,
-        zone_kind: selectedZoneKind,
-        captured_at: new Date().toISOString(),
+        storeId: visit.store_id,
+        visitId: visit.id,
+        zoneId,
+        zoneKind: selectedZoneKind,
       });
-
-      // 2. Upload file bytes to upload_url
-      if (initResp.upload_url && !apiClient.useDoubles) {
-        const uploadRes = await fetch(initResp.upload_url, {
-          method: "PUT",
-          headers: { "Content-Type": mimeType },
-          body: file,
-        });
-        if (!uploadRes.ok) {
-          throw new Error(`Media upload failed with status ${uploadRes.status}: ${uploadRes.statusText}`);
-        }
-      }
-
-      // 3. Complete media
-      const completed = await apiClient.completeMedia(initResp.media.id, {
-        expected_version: 1,
-      });
-
       setUploadedMedia((prev) => [completed, ...prev]);
     } catch (err: unknown) {
       console.error("Upload error:", err);
@@ -232,9 +200,9 @@ export default function VisitDetailPage() {
   };
 
   const handleLoadSamplePhoto = async (
-    samplePath = "/samples/shelf_before.jpg",
-    filename = "shelf_before.jpg",
-    kind: "VISIT_BEFORE" | "VISIT_AFTER" = "VISIT_BEFORE"
+    samplePath: string = SAMPLE_PHOTOS.before.path,
+    filename: string = SAMPLE_PHOTOS.before.filename,
+    kind: PhotoKind = "VISIT_BEFORE"
   ) => {
     if (!visit) return null;
     if (visit.workspace_id) {
@@ -243,45 +211,16 @@ export default function VisitDetailPage() {
     setIsUploading(true);
     setUploadError(null);
     try {
-      const res = await fetch(samplePath);
-      if (!res.ok) throw new Error("Failed to load sample shelf photo asset.");
-      const blob = await res.blob();
-      const file = new File([blob], filename, { type: "image/jpeg" });
-
-      const buffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const sha256 = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-
-      const initResp = await apiClient.initMedia({
-        kind,
-        filename,
-        mime_type: "image/jpeg",
-        byte_size: file.size,
-        sha256,
-        store_id: visit.store_id,
-        visit_id: visit.id,
-        product_id: null,
-        zone_id: zoneId || "ZONE-BEV-01",
-        zone_kind: selectedZoneKind || "SHELF",
-        captured_at: new Date().toISOString(),
-      });
-
-      if (initResp.upload_url && !apiClient.useDoubles) {
-        const uploadRes = await fetch(initResp.upload_url, {
-          method: "PUT",
-          headers: { "Content-Type": "image/jpeg" },
-          body: file,
-        });
-        if (!uploadRes.ok) {
-          throw new Error(`Media upload failed with status ${uploadRes.status}: ${uploadRes.statusText}`);
+      const completed = await uploadSamplePhoto(
+        { path: samplePath, filename },
+        {
+          kind,
+          storeId: visit.store_id,
+          visitId: visit.id,
+          zoneId: zoneId || "ZONE-BEV-01",
+          zoneKind: selectedZoneKind || "SHELF",
         }
-      }
-
-      const completed = await apiClient.completeMedia(initResp.media.id, {
-        expected_version: 1,
-      });
-
+      );
       setUploadedMedia((prev) => [completed, ...prev]);
       return completed;
     } catch (err: unknown) {

@@ -42,6 +42,9 @@ class ModelBlockedError(ModelGatewayError):
     """Output blocked by safety filter or policy."""
 
 
+THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH")
+
+
 class GeminiGateway:
     """Production implementation of ModelGateway using Google Gen AI SDK."""
 
@@ -163,6 +166,24 @@ class GeminiGateway:
             raise ModelGatewayError(f"Gemini call failed: {msg}") from exc
 
     @staticmethod
+    def _thinking_config(thinking_budget: str | None) -> Any:
+        """Map the port's thinking setting to Gemini config.
+
+        Named levels (minimal, low, medium, high) set Gemini 3 thinking_level; an integer
+        string sets a token budget. Anything else is a caller bug and raises.
+        """
+        from google.genai import types
+
+        if not thinking_budget:
+            return None
+        if thinking_budget.isdigit():
+            return types.ThinkingConfig(thinking_budget=int(thinking_budget))
+        level = thinking_budget.strip().upper()
+        if level not in THINKING_LEVELS:
+            raise ValueError(f"Unsupported thinking setting '{thinking_budget}'")
+        return types.ThinkingConfig(thinking_level=level)
+
+    @staticmethod
     def _extract_system_instruction(prompt: str) -> tuple[str, str | None]:
         """Extract embedded system instruction from prompt tags."""
         match = re.search(
@@ -198,15 +219,7 @@ class GeminiGateway:
             prompt=cleaned_prompt, images=images, pdfs=pdfs
         )
 
-        thinking_config = None
-        if thinking_budget:
-            try:
-                budget_int = int(thinking_budget)
-                thinking_config = types.ThinkingConfig(thinking_budget=budget_int)
-            except ValueError:
-                logger.warning(
-                    f"Invalid thinking_budget '{thinking_budget}', ignoring."
-                )
+        thinking_config = self._thinking_config(thinking_budget)
 
         gemini_schema: Any = response_schema
         if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):

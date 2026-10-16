@@ -13,6 +13,7 @@ Verifies:
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -86,14 +87,18 @@ def test_ac30_demo_fixtures_existence_and_structure():
     shelf_before = fixtures_dir / "media" / "shelf_before.jpg"
     assert shelf_before.exists(), "shelf_before.jpg missing"
 
-    shelf_after = fixtures_dir / "media" / "shelf_after.jpg"
-    assert shelf_after.exists(), "shelf_after.jpg missing"
+    for name in ("shelf_after.jpg", "shelf_after_fail.jpg"):
+        assert (fixtures_dir / "media" / name).exists(), f"{name} missing"
+
+    agreement = fixtures_dir / "agreement" / "aquapure_endcap_agreement.pdf"
+    assert agreement.exists(), "agreement PDF missing"
+    assert agreement.read_bytes().startswith(b"%PDF")
 
 
 def test_ac30_demo_images_are_valid_jpeg():
     """Verify demo shelf images are valid non-corrupted JPEGs."""
     fixtures_dir = Path(__file__).resolve().parent.parent.parent / "fixtures" / "demo"
-    for img_name in ("shelf_before.jpg", "shelf_after.jpg"):
+    for img_name in ("shelf_before.jpg", "shelf_after.jpg", "shelf_after_fail.jpg"):
         img_path = fixtures_dir / "media" / img_name
         with Image.open(img_path) as img:
             assert img.format == "JPEG"
@@ -113,33 +118,35 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
         "X-Workspace-Id": str(workspace_id),
     }
 
+    media_kinds: list[str] = []
+
+    async def record_media_init(request):
+        if request.method == "POST" and request.url.path == "/media":
+            media_kinds.append(json.loads(request.content)["kind"])
+
+    demo_client.event_hooks["request"].append(record_media_init)
+
     # Run 1: First seed execution
     result_run1 = await seed_workspace(demo_client, workspace_id, admin_headers)
     assert result_run1["status"] == "SUCCESS"
-    assert result_run1["store_id"] is not None
-    assert result_run1["distributor_location_id"] is not None
-    assert result_run1["product_id"] is not None
-    assert result_run1["promotion_id"] is not None
+    for key in (
+        "store_id",
+        "distributor_location_id",
+        "product_id",
+        "promotion_id",
+        "agreement_media_id",
+        "visit_id",
+        "example_visit_id",
+        "sales_import_id",
+        "inventory_import_id",
+    ):
+        assert result_run1[key] is not None, key
     assert result_run1["promotion_version"] == 2  # draft (1) + approved (2)
-    assert result_run1["visit_id"] is not None
-    assert result_run1["sales_import_id"] is not None
-    assert result_run1["inventory_import_id"] is not None
-    assert result_run1["shelf_before_media_id"] is not None
-    assert result_run1["shelf_after_media_id"] is not None
+    assert result_run1["visit_id"] != result_run1["example_visit_id"]
 
     # Run 2: Second seed execution (must be idempotent)
     result_run2 = await seed_workspace(demo_client, workspace_id, admin_headers)
-    assert result_run2["status"] == "SUCCESS"
-    assert result_run2["store_id"] == result_run1["store_id"]
-    assert result_run2["distributor_location_id"] == result_run1["distributor_location_id"]
-    assert result_run2["product_id"] == result_run1["product_id"]
-    assert result_run2["promotion_id"] == result_run1["promotion_id"]
-    assert result_run2["promotion_version"] == result_run1["promotion_version"]
-    assert result_run2["visit_id"] == result_run1["visit_id"]
-    assert result_run2["sales_import_id"] == result_run1["sales_import_id"]
-    assert result_run2["inventory_import_id"] == result_run1["inventory_import_id"]
-    assert result_run2["shelf_before_media_id"] == result_run1["shelf_before_media_id"]
-    assert result_run2["shelf_after_media_id"] == result_run1["shelf_after_media_id"]
+    assert result_run2 == result_run1
 
     # Verify entity counts across API: No duplicate records created
     stores_res = await demo_client.get("/stores", headers=admin_headers)
@@ -170,23 +177,111 @@ async def test_ac30_seed_demo_idempotence(demo_client: AsyncClient):
     assert promos_res.status_code == 200
     promos = promos_res.json()["items"]
     assert len(promos) == 1
-    assert promos[0]["approved_policy"] is not None
     assert promos[0]["version"] == 2
+    assert promos[0]["agreement_media_id"] == result_run1["agreement_media_id"]
+    assert promos[0]["starts_on"] == "2026-10-01"
+    assert promos[0]["ends_on"] == "2026-11-30"
+    rules = promos[0]["approved_policy"]["rules"]
+    assert sorted(r["kind"] for r in rules) == ["MIN_FACINGS", "REQUIRED_PRODUCT"]
+    assert next(r for r in rules if r["kind"] == "MIN_FACINGS")["min_facings"] == 6
 
     visits_res = await demo_client.get(f"/visits?store_id={result_run1['store_id']}", headers=admin_headers)
     assert visits_res.status_code == 200
-    assert len(visits_res.json()["items"]) == 1
+    assert len(visits_res.json()["items"]) == 2
 
-    # Verify media stability and valid states
-    media_before = await demo_client.get(f"/media/{result_run1['shelf_before_media_id']}", headers=admin_headers)
-    assert media_before.status_code == 200
-    assert media_before.json()["status"] == "READY"
-    assert media_before.json()["kind"] == "VISIT_BEFORE"
+    # Photos are not pre-seeded: the investigator treats photos older than 30 minutes
+    # as stale, so before photos are uploaded right before an investigation runs.
+    for visit in visits_res.json()["items"]:
+        assert visit["status"] == "OPEN"
+    assert set(media_kinds) <= {"IMPORT", "AGREEMENT"}
 
-    media_after = await demo_client.get(f"/media/{result_run1['shelf_after_media_id']}", headers=admin_headers)
-    assert media_after.status_code == 200
-    assert media_after.json()["status"] == "READY"
-    assert media_after.json()["kind"] == "VISIT_AFTER"
+
+@pytest.mark.asyncio
+async def test_ac30_seed_reruns_across_workspaces_without_key_conflicts(demo_client: AsyncClient):
+    """Regression: the same token seeding a second workspace must not reuse idempotency keys (409)."""
+    from scripts.seed_demo.seed import seed_workspace
+
+    first, second = uuid4(), uuid4()
+    for ws in (first, second):
+        await provision_demo_workspace(ws)
+
+    result_first = await seed_workspace(
+        demo_client, first, {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(first)}
+    )
+    result_second = await seed_workspace(
+        demo_client, second, {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(second)}
+    )
+    assert result_second["status"] == "SUCCESS"
+    assert result_second["agreement_media_id"] != result_first["agreement_media_id"]
+    assert result_second["visit_id"] != result_first["visit_id"]
+
+
+@pytest.mark.asyncio
+async def test_ac30_repair_skips_when_workspace_recently_active(demo_client: AsyncClient):
+    """Repair mode never touches a workspace that changed within the idle window."""
+    from scripts.seed_demo.seed import repair_if_idle, seed_workspace
+
+    workspace_id = uuid4()
+    await provision_demo_workspace(workspace_id)
+    headers = {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(workspace_id)}
+    await seed_workspace(demo_client, workspace_id, headers)
+
+    sent: list[str] = []
+
+    async def record(request):
+        sent.append(request.method)
+
+    demo_client.event_hooks["request"].append(record)
+    result = await repair_if_idle(demo_client, workspace_id, headers, idle_hours=2)
+
+    assert result["status"] == "SKIPPED_ACTIVE"
+    assert result["last_activity"] is not None
+    assert set(sent) == {"GET"}
+
+
+@pytest.mark.asyncio
+async def test_ac30_repair_when_idle_only_adds_missing_records(demo_client: AsyncClient):
+    """Repair mode on an idle workspace restores missing demo data and never edits or deletes."""
+    from datetime import UTC, datetime, timedelta
+
+    from scripts.seed_demo.seed import repair_if_idle, seed_workspace
+
+    workspace_id = uuid4()
+    await provision_demo_workspace(workspace_id)
+    headers = {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(workspace_id)}
+    seeded = await seed_workspace(demo_client, workspace_id, headers)
+
+    requests: list[tuple[str, str]] = []
+
+    async def record(request):
+        requests.append((request.method, request.url.path))
+
+    demo_client.event_hooks["request"].append(record)
+    later = datetime.now(UTC) + timedelta(hours=3)
+    result = await repair_if_idle(demo_client, workspace_id, headers, idle_hours=2, now=later)
+
+    assert result["status"] == "REPAIRED"
+    assert result["store_id"] == seeded["store_id"]
+    assert result["visit_id"] == seeded["visit_id"]
+    methods = {m for m, _ in requests}
+    assert "DELETE" not in methods
+    assert "PATCH" not in methods
+    assert all(path.startswith("/media/upload/") for m, path in requests if m == "PUT")
+
+
+@pytest.mark.asyncio
+async def test_ac30_repair_seeds_empty_idle_workspace(demo_client: AsyncClient):
+    """An empty workspace has no recent activity, so repair seeds it fully."""
+    from scripts.seed_demo.seed import repair_if_idle
+
+    workspace_id = uuid4()
+    await provision_demo_workspace(workspace_id)
+    headers = {"Authorization": "Bearer demo-admin", "X-Workspace-Id": str(workspace_id)}
+
+    result = await repair_if_idle(demo_client, workspace_id, headers, idle_hours=2)
+
+    assert result["status"] == "REPAIRED"
+    assert result["promotion_id"] is not None
 
 
 @pytest.mark.asyncio
@@ -280,6 +375,14 @@ def test_ac30_cli_parser():
     assert args.workspace_id == "00000000-0000-0000-0000-000000000001"
     assert args.api_url == "http://127.0.0.1:8000"
     assert args.token == "demo-admin"
+    assert args.repair_if_idle is None
+    assert args.with_ai is False
+
+    repair_args = parser.parse_args(
+        ["--workspace-id", "00000000-0000-0000-0000-000000000001", "--repair-if-idle", "2", "--with-ai"]
+    )
+    assert repair_args.repair_if_idle == 2.0
+    assert repair_args.with_ai is True
 
 
 def test_ac30_integration_gate_app_runs_without_demo_fixtures():

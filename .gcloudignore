@@ -40,3 +40,6 @@ scratch/
 *service-account*.json
 firebase-adminsdk*.json
 gen-lang-client*.json
+
+# Local agent worktrees and tooling
+.claude/

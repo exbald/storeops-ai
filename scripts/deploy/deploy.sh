@@ -59,6 +59,8 @@ TASKS_QUEUE="storeops-work-queue"
 API_SA="storeops-api-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 WORKER_SA="storeops-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 INVOKER_SA="storeops-invoker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+# HMAC key for signed media byte URLs (API only). Created out of band, never by this script.
+MEDIA_URL_SIGNING_SECRET="storeops-media-url-signing-key"
 
 # Load GEMINI_API_KEY from .env if present and unset
 if [ -z "${GEMINI_API_KEY:-}" ] && [ -f "${ROOT_DIR}/.env" ]; then
@@ -90,6 +92,7 @@ gcloud services enable \
     storage.googleapis.com \
     aiplatform.googleapis.com \
     artifactregistry.googleapis.com \
+    secretmanager.googleapis.com \
     --project="${PROJECT_ID}"
 
 # 5. Service Accounts Setup
@@ -224,6 +227,22 @@ WORKER_URL="$(gcloud run services describe storeops-worker --region="${REGION}" 
 
 # 11. Deploy Cloud Run Public API
 echo -e "\n${BLUE}Step 8: Deploying Public Cloud Run API...${NC}"
+# The API refuses to boot with PROFILE=CLOUD and no MEDIA_URL_SIGNING_KEY; block early instead.
+if ! gcloud secrets describe "${MEDIA_URL_SIGNING_SECRET}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo -e "${RED}BLOCKED: Secret Manager secret '${MEDIA_URL_SIGNING_SECRET}' does not exist.${NC}"
+    echo "Create it once with a random value of at least 32 characters, e.g.:"
+    echo "  python3 -c 'import secrets; print(secrets.token_hex(32), end=\"\")' | \\"
+    echo "    gcloud secrets create ${MEDIA_URL_SIGNING_SECRET} --data-file=- --project=${PROJECT_ID}"
+    exit 2
+fi
+gcloud secrets add-iam-policy-binding "${MEDIA_URL_SIGNING_SECRET}" \
+    --member="serviceAccount:${API_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}" --quiet >/dev/null
+# Cloud Run URLs are deterministic (https://<service>-<project number>.<region>.run.app), so the
+# API can learn its own public URL before the first deploy.
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")"
+API_PUBLIC_URL="https://storeops-api-${PROJECT_NUMBER}.${REGION}.run.app"
 gcloud run deploy storeops-api \
     --source="${ROOT_DIR}" \
     --command="uvicorn,apps.api.main:app,--host,0.0.0.0,--port,8000" \
@@ -234,7 +253,8 @@ gcloud run deploy storeops-api \
     --ingress="all" \
     --max-instances=1 \
     --allow-unauthenticated \
-    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=https://storeops-api-967137522464.asia-southeast1.run.app,MEDIA_BASE_URL=https://storeops-api-967137522464.asia-southeast1.run.app/media" \
+    --set-secrets="MEDIA_URL_SIGNING_KEY=${MEDIA_URL_SIGNING_SECRET}:latest" \
+    --set-env-vars="APP_ENV=${APP_ENV},PROFILE=CLOUD,STATE_BACKEND=firestore,DATA_BACKEND=CLOUD,GCP_PROJECT=${PROJECT_ID},FIREBASE_PROJECT_ID=${PROJECT_ID},MEDIA_BUCKET=${MEDIA_BUCKET},BIGQUERY_DATASET=${BQ_DATASET},WORKER_URL=${WORKER_URL},TASKS_QUEUE=${TASKS_QUEUE},INVOKER_SERVICE_ACCOUNT=${INVOKER_SA},AI_MODE=LIVE,MODEL_ID=gemini-3.8-flash,GEMINI_API_KEY=${GEMINI_API_KEY:-},API_URL=${API_PUBLIC_URL},MEDIA_BASE_URL=${API_PUBLIC_URL}/media" \
     --quiet
 
 API_URL="$(gcloud run services describe storeops-api --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
@@ -273,7 +293,7 @@ gcloud run deploy storeops-web \
     --ingress="all" \
     --max-instances=3 \
     --allow-unauthenticated \
-    --set-env-vars="NODE_ENV=production,NEXT_PUBLIC_API_URL=${API_URL},NEXT_PUBLIC_WORKSPACE_ID=00000000-0000-0000-0000-000000000001,NEXT_PUBLIC_AUTH_TOKEN=dev-admin-token" \
+    --set-env-vars="NODE_ENV=production,NEXT_PUBLIC_API_URL=${API_URL},NEXT_PUBLIC_WORKSPACE_ID=00000000-0000-0000-0000-000000000004,NEXT_PUBLIC_AUTH_TOKEN=dev-admin-token" \
     --quiet
 
 WEB_URL="$(gcloud run services describe storeops-web --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")"
