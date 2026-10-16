@@ -116,7 +116,7 @@ export default function SetupPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workspace Setup Checklist</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Persisted onboarding requirements for <span className="font-semibold">{activeWorkspaceName}</span>
+            What this workspace needs before field visits: <span className="font-semibold">{activeWorkspaceName}</span>
           </p>
         </div>
         <div>
@@ -137,12 +137,11 @@ export default function SetupPage() {
             <svg className="w-5 h-5 text-blue-600" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
-            Empty Workspace Setup Guidance
+            Getting started
           </h2>
           <p className="mt-1 text-sm text-blue-800">
-            This workspace contains no preloaded sample data. Follow the 4-step checklist below to configure your
-            real store network, product catalog, sales baselines, and merchandising agreements. Field reps cannot
-            conduct compliance visits until required prerequisites are established.
+            Follow the 4 steps below to add your stores, products, sales and stock data, and vendor agreements.
+            Reps can start store visits once these are in place.
           </p>
         </div>
       )}
@@ -160,7 +159,7 @@ export default function SetupPage() {
             </h2>
             <p className="text-sm text-blue-200 max-w-2xl leading-relaxed">
               Your store network, products, sales baselines, and merchandising agreements are active.
-              Jump straight into a live Store Visit at <strong>{activeStoreName || "Downtown Flagship #101"}</strong> to experience multimodal shelf analysis, evidence-grounded diagnosis, and automated corrective action generation!
+              Jump straight into a live Store Visit at <strong>{activeStoreName || "your first store"}</strong> to experience multimodal shelf analysis, evidence-grounded diagnosis, and automated corrective action generation!
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 shrink-0">
@@ -196,7 +195,7 @@ export default function SetupPage() {
 
             <div className="mt-6 flex items-center justify-between border-t border-gray-100 pt-4">
               <div className="text-sm">
-                <span className="text-gray-500">Persisted Records: </span>
+                <span className="text-gray-500">Saved records: </span>
                 <span className="font-semibold text-gray-900">
                   {loading ? "..." : item.count}
                 </span>
